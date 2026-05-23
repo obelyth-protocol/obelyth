@@ -1,0 +1,36 @@
+# Obelyth Miner Configuration
+# Copy to config/miner.toml and edit — never commit miner.toml
+
+[miner]
+# Your NRN wallet address (get testnet NRN at obelyth.io/faucet)
+wallet_address = "OBY_YOUR_ADDRESS_HERE"
+
+# Node to connect to (use obelyth.io seed nodes or run your own)
+node_host = "testnet.obelyth.io"
+node_port = 8333
+
+[gpu]
+# Number of GPUs to use (0 = use all available)
+gpu_count = 0
+
+# Minimum VRAM per GPU in GB
+min_vram_gb = 8
+
+# CUDA device IDs to use (empty = all)
+# device_ids = [0, 1]
+
+[vllm]
+# vLLM server config (starts automatically if not running)
+host = "127.0.0.1"
+port = 8000
+
+# Maximum model size to accept (in billions of parameters)
+max_model_size_b = 70
+
+# Tensor parallel size (number of GPUs for large models)
+tensor_parallel = 1
+
+[stake]
+# NRN to stake for reputation (higher stake = more job priority)
+# Leave at 0 to mine without staking
+stake_nxs = 0

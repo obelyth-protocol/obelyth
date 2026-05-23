@@ -1,0 +1,4 @@
+# Obelyth — runtime dependencies
+cryptography>=42.0.0
+# All other dependencies use Python standard library only
+# (hashlib, sqlite3, threading, json, socket, http.server, smtplib, urllib)

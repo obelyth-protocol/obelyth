@@ -1,0 +1,45 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Node data (never commit chain state or keys)
+nexus_data/
+*.db
+*.wif
+founder_key.wif
+watcher_state.json
+
+# Environment / secrets
+.env
+.env.*
+config/miner.toml
+config/secrets.toml
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Test artifacts
+.pytest_cache/
+.coverage
+htmlcov/
+/tmp/
+
+# Logs
+*.log
