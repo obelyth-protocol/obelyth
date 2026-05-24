@@ -44,7 +44,7 @@ class UTXO:
     tx_hash : str
     index   : int
     address : str
-    amount  : float     # NXS
+    amount  : float     # OBY
     spent   : bool = False
 
     def to_dict(self) -> dict:
@@ -75,7 +75,7 @@ class TxInput:
 @dataclass
 class TxOutput:
     address : str
-    amount  : float   # NXS
+    amount  : float   # OBY
 
     def to_dict(self) -> dict:
         return asdict(self)

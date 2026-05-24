@@ -213,7 +213,7 @@ class Wallet:
                 tx.zk_proof = self._generate_zk_stub(tx, signing_payload)
 
         tx._hash = tx.compute_hash()
-        log.info(f"Built tx {tx.hash[:12]}... {amount} NXS → {to_address} fee={fee}")
+        log.info(f"Built tx {tx.hash[:12]}... {amount} OBY → {to_address} fee={fee}")
         return tx
 
     def _generate_zk_stub(self, tx: Transaction, payload: bytes) -> str:
@@ -232,14 +232,14 @@ class Wallet:
         now = int(time.time())
         return {
             'founder_address' : vesting.founder_address,
-            'total_allocation': vesting.total_nxs,
+            'total_allocation': vesting.total_oby,
             'vested_now'      : vesting.vested_amount(now),
             'locked_now'      : vesting.locked_amount(now),
             'cliff_months'    : vesting.cliff_months,
             'total_months'    : vesting.total_months,
             'genesis_ts'      : vesting.genesis_timestamp,
             'pct_vested'      : round(
-                vesting.vested_amount(now) / vesting.total_nxs * 100, 2
+                vesting.vested_amount(now) / vesting.total_oby * 100, 2
             ),
         }
 

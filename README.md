@@ -11,7 +11,7 @@
 
 [Website](https://obelyth.io) · [Whitepaper](https://obelyth.io/whitepaper) · [Docs](https://docs.obelyth.io) · [Explorer](https://explorer.obelyth.io)
 
-*The three Norns weave the threads of fate at the base of Yggdrasil — Obelyth weaves GPU work into the fabric of AI.*
+*The obelisk channels compute into intelligence — GPU work becomes verifiable AI inference.*
 
 </div>
 
@@ -21,12 +21,12 @@
 
 Obelyth replaces purposeless hash-grinding with verifiable AI compute. Miners earn OBY by running real inference jobs and fine-tuning language models — not by solving arbitrary puzzles. Developers pay in stablecoins (USDC, DAI, USDT, EURC) and get GPU compute at roughly 56% below AWS pricing.
 
-90% of every developer fee is permanently locked into a diversified stablecoin AMM reserve that backs the OBY price floor. The result is a token with a structural economic floor — not just a speculative promise.
+90% of every developer fee is permanently locked into a diversified stablecoin AMM reserve, which continuously deepens the protocol's liquidity infrastructure as usage grows.
 
 **Core properties:**
 - 21,000,000 OBY hard cap — inviolable, no governance override
 - 92% of supply earned through mining — zero VC allocation, ever
-- Constant-product AMM — structural price floor from day one
+- Constant-product AMM — protocol liquidity infrastructure from day one
 - Diversified reserve basket — USDC 40% / DAI 35% / USDT 15% / EURC 10%
 - HuggingFace drop-in — two lines of code to integrate
 
@@ -51,7 +51,7 @@ pip install obelyth-sdk
 ```
 
 ```python
-from norn import ObelythClient
+from obelyth import ObelythClient
 
 client = ObelythClient(api_key="oby_your_key_here")
 
@@ -61,7 +61,7 @@ result = pipe("Explain proof-of-useful-work in one sentence")[0]
 print(result.generated_text)
 ```
 
-Get an API key and testnet NRN at [obelyth.io/faucet](https://obelyth.io/faucet).
+Get an API key and testnet OBY at [obelyth.io/faucet](https://obelyth.io/faucet).
 
 ---
 
@@ -92,7 +92,7 @@ obelyth/
 │   └── verification.py     # Optimistic verification + ZK proof stubs
 │
 ├── sdk/                    # Developer SDK
-│   └── norn.py             # HuggingFace drop-in, balance checks, job submission
+│   └── obelyth.py          # HuggingFace drop-in, balance checks, job submission
 │
 ├── payments/               # Payment infrastructure
 │   ├── manager.py          # Payment lifecycle orchestration
@@ -108,7 +108,7 @@ obelyth/
 │   └── wallet.py           # Key derivation, address generation, tx builder
 │
 ├── cli/                    # Command line interface
-│   └── norn.py             # CLI tool
+│   └── obelyth.py          # CLI tool
 │
 ├── docs/                   # Documentation
 │   └── RUST_PORT.md        # Rust port implementation guide
@@ -123,7 +123,7 @@ obelyth/
 
 ## Token Economics
 
-| Allocation | % | NRN | Notes |
+| Allocation | % | OBY | Notes |
 |---|---|---|---|
 | Mined supply | 92% | ~19,320,000 | Block rewards + compute job rewards |
 | Pre-mainnet community | 3% | 630,000 | Early miners, devs, validators, security researchers |
@@ -139,7 +139,7 @@ obelyth/
 | Creator Share | 5% | Permanent protocol fee — auditable at `/treasury` RPC |
 | DAO fund | 5% | Governance-controlled stablecoins |
 
-**DAO mining tax:** 5% of all NRN mined is automatically redirected to the DAO vault at the consensus layer. Enforced in every coinbase transaction.
+**DAO mining tax:** 5% of all OBY mined is automatically redirected to the DAO vault at the consensus layer. Enforced in every coinbase transaction.
 
 ---
 
@@ -190,7 +190,7 @@ pip install -r requirements.txt
 pip install vllm
 
 cp config/miner.example.toml config/miner.toml
-# Edit miner.toml — add your NRN address and GPU settings
+# Edit miner.toml — add your OBY address and GPU settings
 
 python -m compute.miner --config config/miner.toml
 ```
@@ -241,9 +241,9 @@ Internal Balance Ledger
             →  5% Creator Share wallet
             →  5% DAO multisig
 
-Miner block reward (50 NRN gross)
-    ├── 47.5 NRN → Miner wallet
-    └──  2.5 NRN → DAO vault (5% constitutional tax)
+Miner block reward (50 OBY gross)
+    ├── 47.5 OBY → Miner wallet
+    └──  2.5 OBY → DAO vault (5% constitutional tax)
 ```
 
 ---
@@ -270,8 +270,8 @@ Mainnet launches on Rust. No calendar override — only when the Rust node has r
 
 Mainnet launches when **all four** conditions are simultaneously true:
 
-- [ ] Rust node running as primary for 30+ consecutive stable days
-- [ ] 30 consecutive stable days with no critical bug
+- [ ] Rust node running as primary for 60+ consecutive stable days
+- [ ] 60 consecutive stable days with no critical bug
 - [ ] 10+ independent validators across 3+ countries
 - [ ] 5+ developers with completed AI compute SDK jobs
 
@@ -281,7 +281,7 @@ Mainnet launches when **all four** conditions are simultaneously true:
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). Every merged PR earns points in the pre-mainnet community tracker toward your genesis NRN allocation.
+See [CONTRIBUTING.md](CONTRIBUTING.md). Every merged PR earns points in the pre-mainnet community tracker toward your genesis OBY allocation.
 
 **High-priority areas:**
 - Rust port (`core/`, `network/`) — see [docs/RUST_PORT.md](docs/RUST_PORT.md)
@@ -320,6 +320,6 @@ MIT — see [LICENSE](LICENSE).
 | General | [hello@obelyth.io](mailto:hello@obelyth.io) |
 
 <br>
-<sub>Built with zero VC funding. 92% of NRN earned through work. Named for the three weavers of fate at the base of Yggdrasil.</sub>
+<sub>Built with zero VC funding. 92% of OBY earned through work.</sub>
 
 </div>

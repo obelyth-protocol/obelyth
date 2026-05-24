@@ -175,7 +175,7 @@ class FullNode:
         seed_nodes   : list = None,
         mine         : bool = False,
         mine_interval: int  = 30,      # seconds between auto-mine attempts
-        data_dir     : str  = './nexus_data',
+        data_dir     : str  = './obelyth_data',
         founder_key  : str  = None,    # path to founder WIF key file
     ):
         self.p2p_port      = p2p_port
@@ -300,8 +300,8 @@ class FullNode:
         print(f"  │  Chain ht  : {s['height']:<27} │")
         print(f"  │  Difficulty: {s['difficulty']:<27} │")
         print(f"  │  Founder   : {v.founder_address[:27]:<27} │")
-        print(f"  │  Vested    : {v.vested_amount(int(time.time())):>12.2f} NXS (of {v.total_nxs:,.0f})   │")
-        print(f"  │  Locked    : {v.locked_amount(int(time.time())):>12.2f} NXS              │")
+        print(f"  │  Vested    : {v.vested_amount(int(time.time())):>12.2f} OBY (of {v.total_oby:,.0f})   │")
+        print(f"  │  Locked    : {v.locked_amount(int(time.time())):>12.2f} OBY              │")
         print("  └─────────────────────────────────────────┘")
         print()
 
@@ -314,7 +314,7 @@ class FullNode:
                 log.info(
                     f"Height={s['height']} Mempool={s['mempool']} "
                     f"Peers={self.network.status()['peers']} "
-                    f"Burned={s['total_burned']:.4f} NXS"
+                    f"Burned={s['total_burned']:.4f} OBY"
                 )
         except KeyboardInterrupt:
             log.info("Shutting down...")
@@ -330,7 +330,7 @@ def main():
     parser.add_argument('--seed',         type=str, action='append',       help='host:port seed node')
     parser.add_argument('--mine',         action='store_true',             help='Enable auto-mining')
     parser.add_argument('--mine-interval',type=int, default=30,            help='Seconds between mine attempts')
-    parser.add_argument('--data-dir',     type=str, default='./nexus_data',help='Data directory')
+    parser.add_argument('--data-dir',     type=str, default='./obelyth_data',help='Data directory')
     parser.add_argument('--founder-key',  type=str, default=None,          help='Path to founder WIF key file')
     args = parser.parse_args()
 

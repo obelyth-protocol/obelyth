@@ -2,7 +2,7 @@
 # Copy to config/miner.toml and edit — never commit miner.toml
 
 [miner]
-# Your NRN wallet address (get testnet NRN at obelyth.io/faucet)
+# Your OBY wallet address (get testnet OBY at obelyth.io/faucet)
 wallet_address = "OBY_YOUR_ADDRESS_HERE"
 
 # Node to connect to (use obelyth.io seed nodes or run your own)
@@ -31,6 +31,6 @@ max_model_size_b = 70
 tensor_parallel = 1
 
 [stake]
-# NRN to stake for reputation (higher stake = more job priority)
+# OBY to stake for reputation (higher stake = more job priority)
 # Leave at 0 to mine without staking
-stake_nxs = 0
+stake_oby = 0

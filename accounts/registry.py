@@ -163,12 +163,12 @@ class DepositAddressDeriver:
     def __init__(self, master_key: bytes = None):
         if master_key is None:
             # In production: load from environment variable or HSM
-            master_key = os.environ.get('NEXUS_MASTER_KEY', '').encode()
+            master_key = os.environ.get('OBELYTH_MASTER_KEY', '').encode()
             if not master_key:
                 master_key = secrets.token_bytes(32)
                 log.warning(
-                    "No NEXUS_MASTER_KEY set — using ephemeral key. "
-                    "Set NEXUS_MASTER_KEY environment variable in production."
+                    "No OBELYTH_MASTER_KEY set — using ephemeral key. "
+                    "Set OBELYTH_MASTER_KEY environment variable in production."
                 )
         self._master = master_key
 
@@ -239,7 +239,7 @@ class AccountRegistry:
 
     def __init__(
         self,
-        db_path       : str = './nexus_data/accounts.db',
+        db_path       : str = './obelyth_data/accounts.db',
         master_key    : bytes = None,
     ):
         self.db_path  = db_path

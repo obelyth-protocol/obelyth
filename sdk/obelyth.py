@@ -9,7 +9,7 @@ Two lines to go from local inference to decentralized compute:
 
   AFTER:
     from transformers import pipeline
-    from nexus import ObelythClient                          # line 1
+    from obelyth import ObelythClient                          # line 1
     pipe = ObelythClient(api_key='oby_...').pipeline(       # line 2
                'text-generation', model='meta-llama/Llama-3-8B')
 
@@ -20,7 +20,7 @@ Supports:
   - Fine-tuning (LoRA/QLoRA via standard Trainer API)
   - Batch jobs (async, results via CID)
   - Local fallback (if no miners available)
-  - PyTorch Trainer drop-in (NexusTrainer)
+  - PyTorch Trainer drop-in (ObelythTrainer)
 """
 
 import os
@@ -34,22 +34,22 @@ import urllib.error
 from typing     import Optional, Iterator, Any
 from dataclasses import dataclass
 
-log = logging.getLogger('norn.sdk')
+log = logging.getLogger('obelyth.sdk')
 
 
 # ── Config ─────────────────────────────────────────────────────────────────────
 
-DEFAULT_NODE = os.environ.get('NEXUS_NODE', 'http://127.0.0.1:8334')
+DEFAULT_NODE = os.environ.get('OBELYTH_NODE', 'http://127.0.0.1:8334')
 SDK_VERSION  = '0.1.0'
 
 
 # ── Exceptions ─────────────────────────────────────────────────────────────────
 
-class NexusError(Exception):          pass
-class NexusAuthError(NexusError):     pass
-class NexusQuotaError(NexusError):    pass
-class NexusTimeoutError(NexusError):  pass
-class NexusNoMinersError(NexusError): pass
+class ObelythError(Exception):          pass
+class ObelythAuthError(ObelythError):     pass
+class ObelythQuotaError(ObelythError):    pass
+class ObelythTimeoutError(ObelythError):  pass
+class ObelythNoMinersError(ObelythError): pass
 
 
 # ── Result Types ───────────────────────────────────────────────────────────────
@@ -60,7 +60,7 @@ class InferenceResult:
     generated_text  : str   = ''
     score           : float = 0.0
     label           : str   = ''
-    # Nexus metadata (extras the HF API doesn't have)
+    # Obelyth metadata (extras the HF API doesn't have)
     job_id          : str   = ''
     miner_addr      : str   = ''
     latency_ms      : float = 0.0
@@ -94,12 +94,12 @@ class FineTuneJob:
             if updated and updated.status in ('done', 'failed'):
                 return updated
             time.sleep(5)
-        raise NexusTimeoutError(f"Job {self.job_id} timed out after {timeout}s")
+        raise ObelythTimeoutError(f"Job {self.job_id} timed out after {timeout}s")
 
 
 # ── Pipeline Proxy ─────────────────────────────────────────────────────────────
 
-class NexusPipeline:
+class ObelythPipeline:
     """
     Drop-in replacement for HuggingFace pipeline().
     Identical call signature — routes to Obelyth instead of local GPU.
@@ -133,7 +133,7 @@ class NexusPipeline:
                 inputs  = inputs,
                 params  = kwargs,
             )
-        except NexusNoMinersError:
+        except ObelythNoMinersError:
             if self.fallback:
                 log.warning("No miners available — falling back to local execution")
                 return self._run_local(inputs, **kwargs)
@@ -148,7 +148,7 @@ class NexusPipeline:
                     self.task, model=self.model, **self._hf_kwargs
                 )
             except ImportError:
-                raise NexusError(
+                raise ObelythError(
                     "transformers not installed and no miners available. "
                     "pip install transformers or connect to a Obelyth node with miners."
                 )
@@ -179,7 +179,7 @@ class ObelythClient:
     Obelyth compute client.
     
     Usage:
-        from nexus import ObelythClient
+        from obelyth import ObelythClient
         client = ObelythClient(api_key='oby_your_key_here')
         
         # Drop-in pipeline replacement
@@ -210,7 +210,7 @@ class ObelythClient:
         fallback   : bool = True,    # fall back to local HF if no miners
         verbose    : bool = False,
     ):
-        self.api_key  = api_key or os.environ.get('NEXUS_API_KEY', '')
+        self.api_key  = api_key or os.environ.get('OBELYTH_API_KEY', '')
         self.node_url = node_url.rstrip('/')
         self.timeout  = timeout
         self.fallback = fallback
@@ -230,12 +230,12 @@ class ObelythClient:
         task   : str,
         model  : str,
         **kwargs,
-    ) -> NexusPipeline:
+    ) -> ObelythPipeline:
         """
         Exact drop-in for transformers.pipeline().
         Change just this one line in your code.
         """
-        return NexusPipeline(task, model, client=self, fallback=self.fallback, **kwargs)
+        return ObelythPipeline(task, model, client=self, fallback=self.fallback, **kwargs)
 
     def embed(
         self,
@@ -297,7 +297,7 @@ class ObelythClient:
             'learning_rate': learning_rate,
             'batch_size'   : batch_size,
             'max_seq_len'  : max_seq_len,
-            'output_name'  : output_name or f'{base_model.split("/")[-1]}-nexus',
+            'output_name'  : output_name or f'{base_model.split("/")[-1]}-obelyth',
         }
 
         # Get quote
@@ -419,7 +419,7 @@ class ObelythClient:
 
         outputs = resp.get('outputs', [])
         if not outputs:
-            raise NexusNoMinersError("No miners available for this job")
+            raise ObelythNoMinersError("No miners available for this job")
 
         return [InferenceResult(
             generated_text = o.get('generated_text', ''),
@@ -466,7 +466,7 @@ class ObelythClient:
                 self.node_url + endpoint,
                 headers={
                     'X-API-Key'       : self.api_key,
-                    'X-Nexus-SDK'     : SDK_VERSION,
+                    'X-Obelyth-SDK'     : SDK_VERSION,
                     'X-Session-ID'    : self._session_id,
                 }
             )
@@ -485,7 +485,7 @@ class ObelythClient:
                 headers= {
                     'Content-Type' : 'application/json',
                     'X-API-Key'    : self.api_key,
-                    'X-Nexus-SDK'  : SDK_VERSION,
+                    'X-Obelyth-SDK'  : SDK_VERSION,
                     'X-Session-ID' : self._session_id,
                 }
             )
@@ -496,9 +496,9 @@ class ObelythClient:
             return None
 
 
-# ── NexusTrainer — PyTorch Trainer drop-in ────────────────────────────────────
+# ── ObelythTrainer — PyTorch Trainer drop-in ────────────────────────────────────
 
-class NexusTrainer:
+class ObelythTrainer:
     """
     Drop-in replacement for HuggingFace Trainer.
     Routes training to Obelyth miners instead of local GPU.
@@ -510,9 +510,9 @@ class NexusTrainer:
             trainer.train()
 
         AFTER:
-            from nexus import NexusTrainer
-            trainer = NexusTrainer(model=model, args=training_args, train_dataset=ds,
-                                   nexus_client=client)
+            from obelyth import ObelythTrainer
+            trainer = ObelythTrainer(model=model, args=training_args, train_dataset=ds,
+                                   obelyth_client=client)
             trainer.train()   # runs on decentralized GPUs
     """
 
@@ -522,18 +522,18 @@ class NexusTrainer:
         args          = None,
         train_dataset = None,
         eval_dataset  = None,
-        nexus_client  : ObelythClient = None,
+        obelyth_client  : ObelythClient = None,
         **kwargs,
     ):
         self.model         = model
         self.args          = args
         self.train_dataset = train_dataset
         self.eval_dataset  = eval_dataset
-        self.client        = nexus_client or ObelythClient()
+        self.client        = obelyth_client or ObelythClient()
         self._extra        = kwargs
         self._job          : Optional[FineTuneJob] = None
 
-    def train(self, **kwargs) -> 'NexusTrainer':
+    def train(self, **kwargs) -> 'ObelythTrainer':
         """Submit training job to Obelyth. Non-blocking."""
         model_name = getattr(self.model, 'name_or_path', 'custom-model')
         epochs     = getattr(self.args, 'num_train_epochs', 3) if self.args else 3
@@ -543,7 +543,7 @@ class NexusTrainer:
         # Serialize dataset if needed
         dataset_path = self._serialize_dataset()
 
-        log.info(f"NexusTrainer: submitting '{model_name}' for {epochs} epochs "
+        log.info(f"ObelythTrainer: submitting '{model_name}' for {epochs} epochs "
                  f"on Obelyth...")
 
         self._job = self.client.fine_tune(
@@ -560,7 +560,7 @@ class NexusTrainer:
     def wait_for_completion(self, timeout: int = 7200) -> FineTuneJob:
         """Block until training completes."""
         if not self._job:
-            raise NexusError("No job submitted. Call .train() first.")
+            raise ObelythError("No job submitted. Call .train() first.")
         return self._job.wait(self.client, timeout=timeout)
 
     def _serialize_dataset(self) -> str:
@@ -568,7 +568,7 @@ class NexusTrainer:
         import tempfile, os
         if self.train_dataset is None:
             return '/dev/null'
-        path = os.path.join(tempfile.gettempdir(), 'nexus_train_data.jsonl')
+        path = os.path.join(tempfile.gettempdir(), 'obelyth_train_data.jsonl')
         try:
             with open(path, 'w') as f:
                 for item in self.train_dataset:
@@ -586,5 +586,5 @@ class NexusTrainer:
 # ── Convenience alias ─────────────────────────────────────────────────────────
 
 def connect(api_key: str = None, node: str = DEFAULT_NODE, **kwargs) -> ObelythClient:
-    """Shorthand: client = nexus.connect('oby_...')"""
+    """Shorthand: client = obelyth.connect('oby_...')"""
     return ObelythClient(api_key=api_key, node_url=node, **kwargs)

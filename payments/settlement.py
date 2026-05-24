@@ -109,7 +109,7 @@ class SettlementLedger:
     Source of truth for what's owed to each destination wallet.
     """
 
-    def __init__(self, db_path: str = './nexus_data/settlement.db'):
+    def __init__(self, db_path: str = './obelyth_data/settlement.db'):
         self.db_path = db_path
         Path(db_path).parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()

@@ -2,7 +2,7 @@
 Obelyth Pre-Mainnet Community Tracker
 ==========================================
 Tracks ALL contributors who earn from the 3% pre-mainnet community pool
-(630,000 NXS) before mainnet launch.
+(630,000 OBY) before mainnet launch.
 
 WHO IS IN THIS POOL:
   Validators         — keep the testnet alive, sign blocks
@@ -19,15 +19,16 @@ PRINCIPLE:
   as a good GPU miner. This builds a genuinely diverse community, not
   just a mining pool with a few devs around the edges.
 
-  All roles compete on the same leaderboard. Points convert to NXS at
+  All roles compete on the same leaderboard. Points convert to OBY at
   a published rate before mainnet launches. Vesting: 6 months linear.
 
-POOL: 630,000 NXS from genesis block address OBY_COMMUNITY_POOL
-MAX PER PARTICIPANT: 15,000 NXS (prevents single-actor dominance)
-POINTS → NXS: published conversion rate set 30 days before mainnet
+POOL: 630,000 OBY from genesis block address OBY_COMMUNITY_POOL
+MAX PER PARTICIPANT: 15,000 OBY (prevents single-actor dominance)
+POINTS → OBY: published conversion rate set 30 days before mainnet
 
-GRADUATION CRITERIA (all three must be met before mainnet):
-  - 30 consecutive stable days with no critical bug
+GRADUATION CRITERIA (all four must be met before mainnet):
+  - Rust node running as primary for 60+ consecutive stable days
+  - 60 consecutive stable days with no critical bug
   - 10+ independent validators across 3+ countries
   - 5+ developers with completed SDK jobs
 """
@@ -46,7 +47,7 @@ from enum        import Enum
 log = logging.getLogger('obelyth.testnet')
 
 # ── Pool Constants ─────────────────────────────────────────────────────────────
-COMMUNITY_POOL_NXS   = 630_000.0    # 3% of 21M supply
+COMMUNITY_POOL_OBY   = 630_000.0    # 3% of 21M supply
 MAX_PER_PARTICIPANT  = 15_000.0     # cap per person — prevents dominance
 GENESIS_VEST_MONTHS  = 6            # linear vesting from mainnet
 
@@ -110,7 +111,7 @@ class ValidatorActivity:
     uptime_pct    : float = 0.0    # 0–100
     blocks_signed : int   = 0
     days_active   : int   = 0
-    stake_nxs     : float = 0.0
+    stake_oby     : float = 0.0
     country       : str   = ''
 
     def points(self) -> float:
@@ -316,13 +317,13 @@ class Participant:
         return round(self.raw_points + self.multi_role_bonus, 2)
 
     @property
-    def genesis_nxs(self) -> float:
+    def genesis_oby(self) -> float:
         """Capped at MAX_PER_PARTICIPANT to prevent single-actor dominance."""
         return round(min(MAX_PER_PARTICIPANT, self.total_points * 0.1), 4)
 
     @property
     def vest_per_month(self) -> float:
-        return round(self.genesis_nxs / GENESIS_VEST_MONTHS, 8)
+        return round(self.genesis_oby / GENESIS_VEST_MONTHS, 8)
 
     def to_dict(self) -> dict:
         return {
@@ -336,7 +337,7 @@ class Participant:
             'raw_points'     : self.raw_points,
             'multi_role_bonus': round(self.multi_role_bonus, 2),
             'total_points'   : self.total_points,
-            'genesis_nxs'    : self.genesis_nxs,
+            'genesis_oby'    : self.genesis_oby,
             'vest_per_month' : self.vest_per_month,
             'secondary_roles': self.secondary_roles,
         }
@@ -351,7 +352,7 @@ class CommunityTracker:
     No founder discretion — all calculations deterministic.
     """
 
-    def __init__(self, db_path: str = './nexus_data/community.db'):
+    def __init__(self, db_path: str = './obelyth_data/community.db'):
         self.db_path      = db_path
         self._participants: dict[str, Participant] = {}
         self._lock        = threading.RLock()
@@ -429,13 +430,13 @@ class CommunityTracker:
         kwargs map directly to the participant's activity stats fields.
 
         Examples:
-          tracker.update('NXS...', uptime_pct=98.5, blocks_signed=8500)
-          tracker.update('NXS...', prs_merged=5, complexity_score=7.2)
-          tracker.update('NXS...', verified_jobs=42, gpu_hours=320)
-          tracker.update('NXS...', critical_bugs=1, poc_quality=9.0)
-          tracker.update('NXS...', pages_written=8, community_rating=4.5)
-          tracker.update('NXS...', deliverables_accepted=2, avg_quality_score=8.5)
-          tracker.update('NXS...', active_days=45, participants_onboarded=3)
+          tracker.update('OBY...', uptime_pct=98.5, blocks_signed=8500)
+          tracker.update('OBY...', prs_merged=5, complexity_score=7.2)
+          tracker.update('OBY...', verified_jobs=42, gpu_hours=320)
+          tracker.update('OBY...', critical_bugs=1, poc_quality=9.0)
+          tracker.update('OBY...', pages_written=8, community_rating=4.5)
+          tracker.update('OBY...', deliverables_accepted=2, avg_quality_score=8.5)
+          tracker.update('OBY...', active_days=45, participants_onboarded=3)
         """
         with self._lock:
             p = self._participants.get(address)
@@ -494,7 +495,7 @@ class CommunityTracker:
                 'description'   : ROLE_DESCRIPTIONS[role],
                 'participants'  : len(group),
                 'total_points'  : round(sum(p.total_points for p in group), 2),
-                'total_genesis_nxs': round(sum(p.genesis_nxs for p in group), 4),
+                'total_genesis_oby': round(sum(p.genesis_oby for p in group), 4),
                 'max_points'    : ROLE_MAX_POINTS[role],
             }
         return summary
@@ -554,7 +555,7 @@ class CommunityTracker:
             ps = list(self._participants.values())
 
         total_points = sum(p.total_points for p in ps)
-        total_pool   = COMMUNITY_POOL_NXS
+        total_pool   = COMMUNITY_POOL_OBY
 
         # Dynamic conversion: pool / total points, capped per participant
         if total_points <= 0:
@@ -566,23 +567,23 @@ class CommunityTracker:
                 continue
             # Pro-rata share of pool, capped at MAX_PER_PARTICIPANT
             pro_rata = (p.total_points / total_points) * total_pool
-            nxs      = round(min(MAX_PER_PARTICIPANT, pro_rata), 4)
+            oby      = round(min(MAX_PER_PARTICIPANT, pro_rata), 4)
             allocs.append({
                 'address'      : p.mainnet_address or p.address,
                 'name'         : p.name or 'Anonymous',
                 'role'         : p.role.value,
                 'role_label'   : ROLE_LABELS[p.role],
                 'points'       : p.total_points,
-                'oby_amount'   : nxs,
+                'oby_amount'   : oby,
                 'vest_months'  : GENESIS_VEST_MONTHS,
-                'vest_per_month': round(nxs / GENESIS_VEST_MONTHS, 8),
+                'vest_per_month': round(oby / GENESIS_VEST_MONTHS, 8),
             })
 
         if output_path:
             Path(output_path).write_text(json.dumps(allocs, indent=2))
             log.info(
                 f"Genesis allocations exported: {len(allocs)} participants | "
-                f"{sum(a['oby_amount'] for a in allocs):,.2f} NXS total"
+                f"{sum(a['oby_amount'] for a in allocs):,.2f} OBY total"
             )
         return allocs
 
@@ -590,13 +591,13 @@ class CommunityTracker:
         with self._lock:
             ps = list(self._participants.values())
         total_pts = sum(p.total_points for p in ps)
-        total_nxs = sum(p.genesis_nxs for p in ps)
+        total_oby = sum(p.genesis_oby for p in ps)
         return {
-            'pool_nxs'          : COMMUNITY_POOL_NXS,
+            'pool_oby'          : COMMUNITY_POOL_OBY,
             'participants'      : len(ps),
             'total_points'      : round(total_pts, 2),
-            'estimated_oby_out' : round(total_nxs, 4),
-            'pool_remaining'    : round(COMMUNITY_POOL_NXS - total_nxs, 4),
+            'estimated_oby_out' : round(total_oby, 4),
+            'pool_remaining'    : round(COMMUNITY_POOL_OBY - total_oby, 4),
             'max_per_participant': MAX_PER_PARTICIPANT,
             'vest_months'       : GENESIS_VEST_MONTHS,
             'graduation'        : self.graduation_status(),

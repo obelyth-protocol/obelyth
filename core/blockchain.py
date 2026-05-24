@@ -30,7 +30,7 @@ from core.crypto import (
 log = logging.getLogger('obelyth.engine')
 
 # ── Network Constants ──────────────────────────────────────────────────────────
-TOTAL_SUPPLY         = 21_000_000.0     # NXS hard cap
+TOTAL_SUPPLY         = 21_000_000.0     # OBY hard cap
 # ── Supply Allocation ─────────────────────────────────────────────────────────
 # 3%  — Founder (12-month cliff, 48-month linear vest)
 # 3%  — Pre-mainnet community (testnet miners, devs, validators, security)
@@ -39,13 +39,13 @@ TOTAL_SUPPLY         = 21_000_000.0     # NXS hard cap
 # 0%  — No VC allocation. Ever.
 
 FOUNDER_PCT          = 0.03             # 3% — personal founder allocation
-FOUNDER_TOTAL        = TOTAL_SUPPLY * FOUNDER_PCT           # 630,000 NXS
+FOUNDER_TOTAL        = TOTAL_SUPPLY * FOUNDER_PCT           # 630,000 OBY
 
 COMMUNITY_PCT        = 0.03             # 3% — pre-mainnet testnet community pool
-COMMUNITY_TOTAL      = TOTAL_SUPPLY * COMMUNITY_PCT         # 630,000 NXS
+COMMUNITY_TOTAL      = TOTAL_SUPPLY * COMMUNITY_PCT         # 630,000 OBY
 
 DAO_DISCRETIONARY_PCT  = 0.02           # 2% — Year 1 DAO discretionary
-DAO_DISCRETIONARY_TOTAL= TOTAL_SUPPLY * DAO_DISCRETIONARY_PCT  # 420,000 NXS
+DAO_DISCRETIONARY_TOTAL= TOTAL_SUPPLY * DAO_DISCRETIONARY_PCT  # 420,000 OBY
 
 PRE_MINE_TOTAL       = FOUNDER_TOTAL + COMMUNITY_TOTAL + DAO_DISCRETIONARY_TOTAL
 MINED_SUPPLY_PCT     = 1.0 - (FOUNDER_PCT + COMMUNITY_PCT + DAO_DISCRETIONARY_PCT)
@@ -53,10 +53,10 @@ MINED_SUPPLY_PCT     = 1.0 - (FOUNDER_PCT + COMMUNITY_PCT + DAO_DISCRETIONARY_PC
 
 assert abs(PRE_MINE_TOTAL - 21_000_000 * 0.08) < 1.0, "Pre-mine must equal 8%"
 
-# DAO Mining Tax — 5% of ALL NXS earned by miners goes to DAO vault
-# Applies to: block rewards + compute job NXS rewards
+# DAO Mining Tax — 5% of ALL OBY earned by miners goes to DAO vault
+# Applies to: block rewards + compute job OBY rewards
 # Constitutional parameter — enforced at consensus layer, not DAO-controlled
-DAO_MINING_TAX_PCT   = 0.05            # 5% of gross miner NXS earnings
+DAO_MINING_TAX_PCT   = 0.05            # 5% of gross miner OBY earnings
 DAO_VAULT_ADDRESS    = 'OBY_DAO_VAULT' # protocol-controlled vault address
 
 INITIAL_REWARD       = 50.0             # OBY per block (gross before tax)
@@ -70,7 +70,7 @@ INITIAL_DIFFICULTY   = 4               # leading zero bits (low for dev)
 MAX_DIFFICULTY       = 64
 MIN_DIFFICULTY       = 1
 
-POS_STAKE_MINIMUM    = 1000.0          # minimum NXS to be a validator
+POS_STAKE_MINIMUM    = 1000.0          # minimum OBY to be a validator
 
 
 class UTXOSet:
@@ -123,12 +123,12 @@ class UTXOSet:
 class ValidatorSet:
     """Registered PoS validators and their stake."""
     def __init__(self):
-        self._validators: dict[str, float] = {}  # address -> staked NXS
+        self._validators: dict[str, float] = {}  # address -> staked OBY
         self._lock = threading.RLock()
 
     def register(self, address: str, stake: float):
         if stake < POS_STAKE_MINIMUM:
-            raise ValueError(f"Minimum stake is {POS_STAKE_MINIMUM} NXS")
+            raise ValueError(f"Minimum stake is {POS_STAKE_MINIMUM} OBY")
         with self._lock:
             self._validators[address] = stake
         log.info(f"Validator registered: {address} stake={stake}")
@@ -210,14 +210,14 @@ class Blockchain:
         self.founder_address = founder_address
         self.dao_address     = dao_address
 
-        # Running DAO vault NXS balance — tracked separately for auditability
-        self.dao_vault_nxs   = 0.0
+        # Running DAO vault OBY balance — tracked separately for auditability
+        self.dao_vault_oby   = 0.0
         self.dao_vault_txs   = 0      # lifetime number of tax deposits
 
         # Vesting schedule — immutable after genesis
         self.vesting = VestingSchedule(
             founder_address = founder_address,
-            total_nxs       = FOUNDER_TOTAL,
+            total_oby       = FOUNDER_TOTAL,
             cliff_months    = 12,
             total_months    = 48,
         )
@@ -231,7 +231,7 @@ class Blockchain:
         """
         Create genesis block with full pre-mine allocation.
 
-        Pre-mine breakdown (8% total, 1,680,000 NXS):
+        Pre-mine breakdown (8% total, 1,680,000 OBY):
           3% (630,000)  → Founder address     — 12mo cliff, 48mo linear vest
           3% (630,000)  → Community pool      — testnet miners/devs/validators
           2% (420,000)  → DAO discretionary   — Year 1 grants and partnerships
@@ -241,10 +241,10 @@ class Blockchain:
         """
         log.info(
             f"Creating genesis block | "
-            f"founder={FOUNDER_TOTAL:,.0f} NXS | "
-            f"community={COMMUNITY_TOTAL:,.0f} NXS | "
-            f"dao_disc={DAO_DISCRETIONARY_TOTAL:,.0f} NXS | "
-            f"mined_reserve={TOTAL_SUPPLY-PRE_MINE_TOTAL:,.0f} NXS"
+            f"founder={FOUNDER_TOTAL:,.0f} OBY | "
+            f"community={COMMUNITY_TOTAL:,.0f} OBY | "
+            f"dao_disc={DAO_DISCRETIONARY_TOTAL:,.0f} OBY | "
+            f"mined_reserve={TOTAL_SUPPLY-PRE_MINE_TOTAL:,.0f} OBY"
         )
 
         outputs = [
@@ -275,10 +275,10 @@ class Blockchain:
             fee     = 0.0,
             memo    = (
                 f'Obelyth Genesis Block | '
-                f'Founder 3% ({FOUNDER_TOTAL:,.0f} NXS, 4yr vest) | '
-                f'Community 3% ({COMMUNITY_TOTAL:,.0f} NXS, testnet) | '
-                f'DAO 2% ({DAO_DISCRETIONARY_TOTAL:,.0f} NXS, Y1 discretionary) | '
-                f'Mined 92% ({TOTAL_SUPPLY-PRE_MINE_TOTAL:,.0f} NXS) | '
+                f'Founder 3% ({FOUNDER_TOTAL:,.0f} OBY, 4yr vest) | '
+                f'Community 3% ({COMMUNITY_TOTAL:,.0f} OBY, testnet) | '
+                f'DAO 2% ({DAO_DISCRETIONARY_TOTAL:,.0f} OBY, Y1 discretionary) | '
+                f'Mined 92% ({TOTAL_SUPPLY-PRE_MINE_TOTAL:,.0f} OBY) | '
                 f'No VC allocation.'
             ),
         )
@@ -393,8 +393,8 @@ class Blockchain:
             outputs  = coinbase_outputs,
             fee      = 0.0,
             memo     = (
-                f'Block #{height} | miner={miner_reward:.8f} NXS '
-                f'| dao_tax={dao_tax:.8f} NXS ({DAO_MINING_TAX_PCT*100:.0f}%)'
+                f'Block #{height} | miner={miner_reward:.8f} OBY '
+                f'| dao_tax={dao_tax:.8f} OBY ({DAO_MINING_TAX_PCT*100:.0f}%)'
             ),
         )
         coinbase._hash = coinbase.compute_hash()
@@ -625,7 +625,7 @@ class Blockchain:
             self.utxos.add(tx.hash, idx, out.address, out.amount)
             # Track DAO vault accumulation
             if out.address == self.dao_address:
-                self.dao_vault_nxs += out.amount
+                self.dao_vault_oby += out.amount
                 self.dao_vault_txs += 1
 
     # ── Difficulty Adjustment ─────────────────────────────────────────────────
@@ -676,13 +676,13 @@ class Blockchain:
     def stake_as_validator(
         self,
         address    : str,
-        stake_nxs  : float,
+        stake_oby  : float,
         privkey    : 'PrivateKey' = None,
     ) -> bool:
         """
-        Register an address as a PoS validator by staking NXS.
+        Register an address as a PoS validator by staking OBY.
         For the founder this can use unvested allocation for staking
-        (staking ≠ spending — the NXS stays locked, just earns validation rights).
+        (staking ≠ spending — the OBY stays locked, just earns validation rights).
         Returns True if registered successfully.
         """
         balance = self.utxos.balance(address)
@@ -692,20 +692,20 @@ class Blockchain:
         effective_balance = balance
         if is_founder:
             # Founder can stake up to their full allocation even if unvested
-            effective_balance = max(balance, self.vesting.total_nxs)
+            effective_balance = max(balance, self.vesting.total_oby)
 
-        if effective_balance < stake_nxs:
+        if effective_balance < stake_oby:
             log.warning(
                 f"Insufficient balance to stake: "
-                f"have {effective_balance:.2f}, need {stake_nxs:.2f}"
+                f"have {effective_balance:.2f}, need {stake_oby:.2f}"
             )
             return False
 
         try:
-            self.validators.register(address, stake_nxs)
+            self.validators.register(address, stake_oby)
             log.info(
                 f"{'Founder' if is_founder else 'Validator'} staked "
-                f"{stake_nxs:,.2f} NXS — address={address[:16]}..."
+                f"{stake_oby:,.2f} OBY — address={address[:16]}..."
             )
             return True
         except ValueError as e:
@@ -723,19 +723,19 @@ class Blockchain:
             'validators'      : len(self.validators.all()),
             'founder_vested'  : self.vesting.vested_amount(int(time.time())),
             'founder_locked'  : self.vesting.locked_amount(int(time.time())),
-            'dao_vault_nxs'   : round(self.dao_vault_nxs, 8),
+            'dao_vault_oby'   : round(self.dao_vault_oby, 8),
             'dao_vault_txs'   : self.dao_vault_txs,
             'dao_vault_address': self.dao_address,
             'dao_mining_tax_pct': DAO_MINING_TAX_PCT * 100,
             'genesis_allocation': {
                 'founder_pct'          : f'{FOUNDER_PCT*100:.0f}%',
-                'founder_nxs'          : FOUNDER_TOTAL,
+                'founder_oby'          : FOUNDER_TOTAL,
                 'community_pool_pct'   : f'{COMMUNITY_PCT*100:.0f}%',
-                'community_pool_nxs'   : COMMUNITY_TOTAL,
+                'community_pool_oby'   : COMMUNITY_TOTAL,
                 'dao_discretionary_pct': f'{DAO_DISCRETIONARY_PCT*100:.0f}%',
-                'dao_discretionary_nxs': DAO_DISCRETIONARY_TOTAL,
+                'dao_discretionary_oby': DAO_DISCRETIONARY_TOTAL,
                 'mined_pct'            : f'{MINED_SUPPLY_PCT*100:.0f}%',
-                'mined_reserve_nxs'    : TOTAL_SUPPLY - PRE_MINE_TOTAL,
+                'mined_reserve_oby'    : TOTAL_SUPPLY - PRE_MINE_TOTAL,
                 'vc_allocation'        : 'None — ever.',
             },
             'tips'            : [t.hash[:16] for t in self.dag.tips()],

@@ -6,7 +6,7 @@ Interact with a running Obelyth node via RPC.
 Commands:
   status            Node status & chain summary
   balance <addr>    Get balance of an address
-  send <to> <amt>   Send NXS from wallet
+  send <to> <amt>   Send OBY from wallet
   mine              Mine one block
   vesting           Founder vesting status
   peers             Connected peers
@@ -64,7 +64,7 @@ def cmd_status(args):
     print(f"  Mempool      : {s['mempool']} txs")
     print(f"  Difficulty   : {s['difficulty']}")
     print(f"  Block size   : {s['block_size_kb']} KB")
-    print(f"  Total burned : {s['total_burned']:.6f} NXS")
+    print(f"  Total burned : {s['total_burned']:.6f} OBY")
     print(f"  Validators   : {s['validators']}")
     print(f"  DAG tips     : {', '.join(t[:12]+'...' for t in s['tips'])}")
     n = s.get('network', {})
@@ -81,15 +81,15 @@ def cmd_balance(args):
     if 'error' in r:
         print(f"[error] {r['error']}")
     else:
-        print(f"  Balance: {r['balance']:.8f} NXS  ({r['address']})")
+        print(f"  Balance: {r['balance']:.8f} OBY  ({r['address']})")
 
 
 def cmd_send(args):
     if not args.to or not args.amount:
-        print("[error] Provide --to <ADDRESS> --amount <NXS>")
+        print("[error] Provide --to <ADDRESS> --amount <OBY>")
         sys.exit(1)
 
-    wallet_path = args.wallet or './nexus_data/wallet.json'
+    wallet_path = args.wallet or './obelyth_data/wallet.json'
     if not Path(wallet_path).exists():
         print(f"[error] Wallet not found: {wallet_path}")
         sys.exit(1)
@@ -98,7 +98,7 @@ def cmd_send(args):
     wallet = Wallet.load(wallet_path)
     print(f"  From: {wallet.primary_address}")
     print(f"  To  : {args.to}")
-    print(f"  Amt : {args.amount} NXS  fee={args.fee}")
+    print(f"  Amt : {args.amount} OBY  fee={args.fee}")
 
     # We need the UTXO set from the node — in production, the node exposes
     # /utxos?addr=... ; for now we build a lightweight local UTXO set
@@ -124,7 +124,7 @@ def cmd_mine(args):
 
 def cmd_vesting(args):
     v = rpc_get('/vesting', args.rpc)
-    total   = v['total_nxs']
+    total   = v['total_oby']
     vested  = v['vested_now']
     locked  = v['locked_now']
     pct     = round(vested / total * 100, 2) if total else 0
@@ -135,9 +135,9 @@ def cmd_vesting(args):
     print("  Founder Vesting Schedule")
     print("  " + "─" * 40)
     print(f"  Address  : {v['founder_address'][:32]}...")
-    print(f"  Total    : {total:>14,.2f} NXS")
-    print(f"  Vested   : {vested:>14,.2f} NXS  ({pct:.1f}%)")
-    print(f"  Locked   : {locked:>14,.2f} NXS")
+    print(f"  Total    : {total:>14,.2f} OBY")
+    print(f"  Vested   : {vested:>14,.2f} OBY  ({pct:.1f}%)")
+    print(f"  Locked   : {locked:>14,.2f} OBY")
     print(f"  Progress : [{bar}]")
     print(f"  Cliff    : {v['cliff_months']} months")
     print(f"  Duration : {v['total_months']} months")
@@ -160,7 +160,7 @@ def cmd_mempool(args):
 
 
 def cmd_wallet(args):
-    wallet_path = args.wallet or './nexus_data/wallet.json'
+    wallet_path = args.wallet or './obelyth_data/wallet.json'
     if not Path(wallet_path).exists():
         print(f"[error] Wallet not found at {wallet_path}. Start the node first.")
         sys.exit(1)
@@ -172,7 +172,7 @@ def cmd_wallet(args):
 
 
 def cmd_newaddress(args):
-    wallet_path = args.wallet or './nexus_data/wallet.json'
+    wallet_path = args.wallet or './obelyth_data/wallet.json'
     if not Path(wallet_path).exists():
         print(f"[error] Wallet not found")
         sys.exit(1)

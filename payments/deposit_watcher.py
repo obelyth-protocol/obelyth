@@ -178,7 +178,7 @@ class DepositWatcher:
         registry      : AccountRegistry,
         on_deposit     : Callable,     # called with (DepositRecord, account_id)
         last_blocks    : dict = None,  # {network: last_scanned_block}
-        state_path     : str = './nexus_data/watcher_state.json',
+        state_path     : str = './obelyth_data/watcher_state.json',
     ):
         self.registry   = registry
         self.on_deposit = on_deposit

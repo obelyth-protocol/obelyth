@@ -43,9 +43,9 @@ FUNDING FLOW:
     → 5% Creator Share wallet (founder direct)
     → 5% DAO stablecoin fund → OpCo bank/multisig → DAO-approved expenditure
 
-  Miner NXS earnings
+  Miner OBY earnings
     → 95% miner reward
-    → 5% DAO NXS vault → governance vote → OpCo executes distribution
+    → 5% DAO OBY vault → governance vote → OpCo executes distribution
 """
 
 import time
@@ -107,16 +107,16 @@ class Employee:
     wallet_address  : str           # OBY address for OBY component
     bank_details    : str = ''      # encrypted/hashed — never plaintext
     salary_usd_mo   : float = 0.0   # monthly USD component
-    salary_oby_mo   : float = 0.0   # monthly NXS component
+    salary_oby_mo   : float = 0.0   # monthly OBY component
     start_date      : int   = field(default_factory=lambda: int(time.time()))
     end_date        : int   = 0     # 0 = ongoing
     is_active       : bool  = True
-    oby_vest_months : int   = 24    # NXS component vests over this period
+    oby_vest_months : int   = 24    # OBY component vests over this period
     notes           : str   = ''
 
     @property
     def total_monthly_cost_usd(self) -> float:
-        return self.salary_usd_mo  # NXS portion tracked separately at market price
+        return self.salary_usd_mo  # OBY portion tracked separately at market price
 
     def to_dict(self) -> dict:
         d = asdict(self)
@@ -131,7 +131,7 @@ class Expenditure:
     exp_type        : ExpenditureType
     description     : str
     amount_usd      : float
-    amount_nxs      : float = 0.0
+    amount_oby      : float = 0.0
     recipient       : str   = ''    # name or wallet address
     vendor          : str   = ''    # e.g. 'Ogier', 'Immunefi', 'AWS'
     dao_proposal_id : str   = ''    # NIP reference if vote required
@@ -155,7 +155,7 @@ class Expenditure:
 class OpCoFinancials:
     """Snapshot of OpCo financial position."""
     stablecoin_balance_usd : float = 0.0   # DAO stablecoin fund in OpCo multisig
-    oby_vault_balance      : float = 0.0   # DAO NXS vault allocated to OpCo
+    oby_vault_balance      : float = 0.0   # DAO OBY vault allocated to OpCo
     monthly_payroll_usd    : float = 0.0   # total monthly staff cost
     monthly_operational_usd: float = 0.0   # infrastructure, legal retainer, etc.
     ytd_expenditure_usd    : float = 0.0
@@ -208,7 +208,7 @@ class OpCoRegistry:
                     exp_type        TEXT NOT NULL,
                     description     TEXT NOT NULL,
                     amount_usd      REAL NOT NULL,
-                    amount_nxs      REAL NOT NULL DEFAULT 0,
+                    amount_oby      REAL NOT NULL DEFAULT 0,
                     recipient       TEXT NOT NULL DEFAULT '',
                     vendor          TEXT NOT NULL DEFAULT '',
                     dao_proposal_id TEXT NOT NULL DEFAULT '',
@@ -279,7 +279,7 @@ class OpCoRegistry:
             ))
         log.info(
             f"OpCo employee added: {name} | {role.value} | "
-            f"${salary_usd_mo:,.0f}/mo + {salary_oby_mo:,.0f} NXS/mo"
+            f"${salary_usd_mo:,.0f}/mo + {salary_oby_mo:,.0f} OBY/mo"
         )
         return emp
 
@@ -301,10 +301,10 @@ class OpCoRegistry:
     def monthly_payroll(self) -> dict:
         emps = self.active_employees()
         total_usd = sum(e.salary_usd_mo for e in emps)
-        total_nxs = sum(e.salary_oby_mo for e in emps)
+        total_oby = sum(e.salary_oby_mo for e in emps)
         return {
             'total_usd_per_month': round(total_usd, 2),
-            'total_oby_per_month': round(total_nxs, 4),
+            'total_oby_per_month': round(total_oby, 4),
             'headcount'          : len(emps),
             'by_role'            : {
                 role.value: {
@@ -325,7 +325,7 @@ class OpCoRegistry:
         amount_usd     : float,
         recipient      : str = '',
         vendor         : str = '',
-        amount_nxs     : float = 0.0,
+        amount_oby     : float = 0.0,
         dao_proposal_id: str = '',
         notes          : str = '',
     ) -> Expenditure:
@@ -342,7 +342,7 @@ class OpCoRegistry:
             exp_type        = exp_type,
             description     = description,
             amount_usd      = amount_usd,
-            amount_nxs      = amount_nxs,
+            amount_oby      = amount_oby,
             recipient       = recipient,
             vendor          = vendor,
             dao_proposal_id = dao_proposal_id,
@@ -353,13 +353,13 @@ class OpCoRegistry:
         with sqlite3.connect(self.db_path) as conn:
             conn.execute('''
                 INSERT INTO expenditures
-                (expenditure_id, exp_type, description, amount_usd, amount_nxs,
+                (expenditure_id, exp_type, description, amount_usd, amount_oby,
                  recipient, vendor, dao_proposal_id, status, requires_vote,
                  created_at, notes)
                 VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
             ''', (
                 exp.expenditure_id, exp.exp_type.value, exp.description,
-                exp.amount_usd, exp.amount_nxs, exp.recipient, exp.vendor,
+                exp.amount_usd, exp.amount_oby, exp.recipient, exp.vendor,
                 exp.dao_proposal_id, exp.status.value, int(exp.requires_vote),
                 exp.created_at, exp.notes,
             ))
@@ -525,7 +525,7 @@ class OpCoRegistry:
             exp_type        = ExpenditureType(row['exp_type']),
             description     = row['description'],
             amount_usd      = row['amount_usd'],
-            amount_nxs      = row['amount_nxs'],
+            amount_oby      = row['amount_oby'],
             recipient       = row['recipient'],
             vendor          = row['vendor'],
             dao_proposal_id = row['dao_proposal_id'],

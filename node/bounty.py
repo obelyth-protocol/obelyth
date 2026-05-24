@@ -1,20 +1,20 @@
 """
 Obelyth Bug Bounty Program
 ==============================
-Security bounty funded from the DAO NXS vault — no hard cap.
+Security bounty funded from the DAO OBY vault — no hard cap.
 The DAO allocates to security on an ongoing basis through governance.
 Critical vulnerabilities will always be paid regardless of vault balance.
 
 Two programs:
 
   Ongoing Standing Bounty:
-    SOURCE: DAO NXS Vault (5% mining tax, perpetual)
+    SOURCE: DAO OBY Vault (5% mining tax, perpetual)
     Permanent program on Immunefi. Open to any researcher, any time, forever.
     The network's immune system — always on, no per-payout governance vote.
     DAO sets severity tiers and award ranges once. Program runs continuously.
 
   Upgrade Reserve (per-event):
-    SOURCE: DAO NXS Vault (5% mining tax, per governance vote)
+    SOURCE: DAO OBY Vault (5% mining tax, per governance vote)
     War chest for specific high-stakes events requiring extraordinary scrutiny:
       - Rust node port ready for mainnet
       - ZK proof system deployment
@@ -48,7 +48,7 @@ TOTAL_OBY_SUPPLY      = 21_000_000.0
 
 # No hard cap — DAO funds security from vault on an ongoing basis
 BOUNTY_HARD_CAP       = False
-BOUNTY_FUNDING_SOURCE = 'DAO NXS Vault (5% mining tax on all miner earnings)'
+BOUNTY_FUNDING_SOURCE = 'DAO OBY Vault (5% mining tax on all miner earnings)'
 
 DISCLOSURE_ACK_HRS    = 72
 DISCLOSURE_FIX_HRS    = 14 * 24
@@ -59,8 +59,8 @@ IMMUNEFI_URL          = 'https://immunefi.com/bounty/obelyth'
 
 # Tranche sources for documentation
 TRANCHE_SOURCES = {
-    'ongoing' : 'DAO NXS Vault — standing program, no per-payout vote required',
-    'upgrade' : 'DAO NXS Vault — per-event DAO governance vote required',
+    'ongoing' : 'DAO OBY Vault — standing program, no per-payout vote required',
+    'upgrade' : 'DAO OBY Vault — per-event DAO governance vote required',
 }
 
 
@@ -117,7 +117,7 @@ class ReportStatus(str, Enum):
     VALID        = 'valid'        # confirmed real vulnerability
     INVALID      = 'invalid'      # not a vulnerability / out of scope
     FIXED        = 'fixed'        # patch deployed
-    AWARDED      = 'awarded'      # NXS award issued
+    AWARDED      = 'awarded'      # OBY award issued
     DUPLICATE    = 'duplicate'    # already reported
     DISCLOSED    = 'disclosed'    # publicly disclosed after fix
 
@@ -128,7 +128,7 @@ class ReportStatus(str, Enum):
 class BountyReport:
     report_id       : str
     tranche         : Tranche
-    researcher_addr : str       # NXS address for award payment
+    researcher_addr : str       # OBY address for award payment
     researcher_name : str       # handle / name
     title           : str
     description     : str
@@ -143,7 +143,7 @@ class BountyReport:
     fixed_at        : int      = 0
     awarded_at      : int      = 0
     # Award
-    award_nxs       : float    = 0.0
+    award_oby       : float    = 0.0
     vest_months     : int      = AWARD_VEST_MONTHS
     award_rationale : str      = ''
     # Duplicate ref
@@ -249,7 +249,7 @@ class BountyProgram:
                     acknowledged_at     INTEGER NOT NULL DEFAULT 0,
                     fixed_at            INTEGER NOT NULL DEFAULT 0,
                     awarded_at          INTEGER NOT NULL DEFAULT 0,
-                    award_nxs           REAL NOT NULL DEFAULT 0,
+                    award_oby           REAL NOT NULL DEFAULT 0,
                     vest_months         INTEGER NOT NULL DEFAULT 6,
                     award_rationale     TEXT NOT NULL DEFAULT '',
                     duplicate_of        TEXT NOT NULL DEFAULT '',
@@ -271,8 +271,8 @@ class BountyProgram:
 
                 CREATE TABLE IF NOT EXISTS tranche_balances (
                     tranche     TEXT PRIMARY KEY,
-                    total_nxs   REAL NOT NULL,
-                    awarded_nxs REAL NOT NULL DEFAULT 0
+                    total_oby   REAL NOT NULL,
+                    awarded_oby REAL NOT NULL DEFAULT 0
                 );
 
                 CREATE INDEX IF NOT EXISTS idx_reports_status
@@ -283,7 +283,7 @@ class BountyProgram:
             # Seed tranche tracking (no hard caps — DAO funds from vault)
             for tranche in [Tranche.ONGOING.value, Tranche.UPGRADE.value]:
                 conn.execute(
-                    'INSERT OR IGNORE INTO tranche_balances (tranche, total_nxs)'
+                    'INSERT OR IGNORE INTO tranche_balances (tranche, total_oby)'
                     ' VALUES (?,?)',
                     (tranche, 0.0)   # 0 = no cap; DAO allocates as needed
                 )
@@ -391,7 +391,7 @@ class BountyProgram:
         vest_months    : int = AWARD_VEST_MONTHS,
     ) -> BountyAward:
         """
-        Issue NXS award to researcher.
+        Issue OBY award to researcher.
         Validates against severity tier ranges and tranche balance.
         """
         report = self._get_report(report_id)
@@ -403,21 +403,21 @@ class BountyProgram:
             )
         # Validate amount is within severity range
         if report.severity_assigned:
-            min_nxs, max_nxs = AWARD_RANGES[report.severity_assigned]
-            if oby_amount < min_nxs or oby_amount > max_nxs:
+            min_oby, max_oby = AWARD_RANGES[report.severity_assigned]
+            if oby_amount < min_oby or oby_amount > max_oby:
                 raise ValueError(
-                    f"Award {oby_amount} NXS outside range for "
+                    f"Award {oby_amount} OBY outside range for "
                     f"{report.severity_assigned.value}: "
-                    f"{min_nxs:,}–{max_nxs:,} NXS"
+                    f"{min_oby:,}–{max_oby:,} OBY"
                 )
         # Check tranche balance — DAO-funded tranches have no hard cap
         # The DAO vault funds these; balance check skipped (governance controls spend)
         balance = self.tranche_balance(report.tranche)
-        if balance['total_nxs'] > 0 and oby_amount > balance['remaining_nxs']:
+        if balance['total_oby'] > 0 and oby_amount > balance['remaining_oby']:
             raise ValueError(
                 f"Tranche {report.tranche.value} insufficient: "
-                f"need {oby_amount:,.0f} NXS, "
-                f"have {balance['remaining_nxs']:,.0f} NXS"
+                f"need {oby_amount:,.0f} OBY, "
+                f"have {balance['remaining_oby']:,.0f} OBY"
             )
 
         vest_start     = int(time.time())
@@ -434,7 +434,7 @@ class BountyProgram:
         )
 
         report.status         = ReportStatus.AWARDED
-        report.award_nxs      = oby_amount
+        report.award_oby      = oby_amount
         report.award_rationale= rationale
         report.awarded_at     = int(time.time())
         report.vest_months    = vest_months
@@ -452,7 +452,7 @@ class BountyProgram:
                     award.vest_start, award.fully_vested_at,
                 ))
                 conn.execute(
-                    'UPDATE tranche_balances SET awarded_nxs = awarded_nxs + ? '
+                    'UPDATE tranche_balances SET awarded_oby = awarded_oby + ? '
                     'WHERE tranche = ?',
                     (oby_amount, report.tranche.value)
                 )
@@ -460,7 +460,7 @@ class BountyProgram:
 
         log.info(
             f"Award issued: {award.award_id} | "
-            f"{oby_amount:,.0f} NXS | "
+            f"{oby_amount:,.0f} OBY | "
             f"vest={vest_months}mo | "
             f"researcher={report.researcher_name} | "
             f"{report.researcher_addr[:16]}..."
@@ -472,17 +472,17 @@ class BountyProgram:
     def tranche_balance(self, tranche: Tranche) -> dict:
         with sqlite3.connect(self.db_path) as conn:
             row = conn.execute(
-                'SELECT total_nxs, awarded_nxs FROM tranche_balances '
+                'SELECT total_oby, awarded_oby FROM tranche_balances '
                 'WHERE tranche = ?', (tranche.value,)
             ).fetchone()
         if not row:
-            return {'total_nxs': 0, 'awarded_nxs': 0, 'remaining_nxs': 0}
+            return {'total_oby': 0, 'awarded_oby': 0, 'remaining_oby': 0}
         total, awarded = row
         return {
             'tranche'      : tranche.value,
-            'total_nxs'    : total,
-            'awarded_nxs'  : round(awarded, 4),
-            'remaining_nxs': round(total - awarded, 4),
+            'total_oby'    : total,
+            'awarded_oby'  : round(awarded, 4),
+            'remaining_oby': round(total - awarded, 4),
             'pct_used'     : round(awarded / total * 100, 1) if total else 0,
         }
 
@@ -535,14 +535,14 @@ class BountyProgram:
         return {
             'hard_cap'           : BOUNTY_HARD_CAP,
             'funding_source'     : BOUNTY_FUNDING_SOURCE,
-            'total_awarded_nxs'  : round(total_awarded, 4),
+            'total_awarded_oby'  : round(total_awarded, 4),
             'note'               : 'No fixed cap — DAO allocates from vault as needed',
             'tranches'           : tranches,
             'reports'            : {r[0]: r[1] for r in counts},
             'severity_ranges'    : {
                 s.value: {
-                    'min_nxs'    : AWARD_RANGES[s][0],
-                    'max_nxs'    : AWARD_RANGES[s][1],
+                    'min_oby'    : AWARD_RANGES[s][0],
+                    'max_oby'    : AWARD_RANGES[s][1],
                     'description': SEVERITY_DESCRIPTIONS[s],
                 }
                 for s in Severity
@@ -566,7 +566,7 @@ class BountyProgram:
                  title, description, severity_claimed, severity_assigned,
                  affected_component, proof_of_concept, status,
                  submitted_at, acknowledged_at, fixed_at, awarded_at,
-                 award_nxs, vest_months, award_rationale, duplicate_of, notes)
+                 award_oby, vest_months, award_rationale, duplicate_of, notes)
                 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             ''', (
                 r.report_id, r.tranche.value, r.researcher_addr,
@@ -575,7 +575,7 @@ class BountyProgram:
                 r.severity_assigned.value if r.severity_assigned else None,
                 r.affected_component, r.proof_of_concept, r.status.value,
                 r.submitted_at, r.acknowledged_at, r.fixed_at, r.awarded_at,
-                r.award_nxs, r.vest_months, r.award_rationale,
+                r.award_oby, r.vest_months, r.award_rationale,
                 r.duplicate_of, r.notes,
             ))
 
@@ -605,7 +605,7 @@ class BountyProgram:
             acknowledged_at    = row['acknowledged_at'],
             fixed_at           = row['fixed_at'],
             awarded_at         = row['awarded_at'],
-            award_nxs          = row['award_nxs'],
+            award_oby          = row['award_oby'],
             vest_months        = row['vest_months'],
             award_rationale    = row['award_rationale'],
             duplicate_of       = row['duplicate_of'],

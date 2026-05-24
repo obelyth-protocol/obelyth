@@ -16,9 +16,9 @@ Please do not open a public GitHub issue for security vulnerabilities.
 | **High** | Network disruption, economic attack enabling significant profit, privacy breach | 10,000–25,000 OBY |
 | **Medium** | Degraded performance, minor economic imbalance, non-critical logic error | 2,000–5,000 OBY |
 | **Low** | Code quality issues, best practice deviations, non-exploitable edge cases | 250–1,000 OBY |
-| **Informational** | Documentation errors, minor suggestions | 0–250 NRN |
+| **Informational** | Documentation errors, minor suggestions | 0–250 OBY |
 
-All awards vest linearly over 6 months from the date of issue. Awards are paid in NRN from the DAO vault — no fixed budget ceiling.
+All awards vest linearly over 6 months from the date of issue. Awards are paid in OBY from the DAO vault — no fixed budget ceiling.
 
 ## Responsible Disclosure Policy
 

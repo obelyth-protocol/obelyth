@@ -21,9 +21,9 @@ class TestGenesisAllocation(unittest.TestCase):
 
     def test_3_3_2_92_split(self):
         alloc = self.chain.state_summary()['genesis_allocation']
-        self.assertEqual(alloc['founder_nxs'],            630_000.0)
-        self.assertEqual(alloc['community_pool_nxs'],     630_000.0)
-        self.assertEqual(alloc['dao_discretionary_nxs'],  420_000.0)
+        self.assertEqual(alloc['founder_oby'],            630_000.0)
+        self.assertEqual(alloc['community_pool_oby'],     630_000.0)
+        self.assertEqual(alloc['dao_discretionary_oby'],  420_000.0)
         self.assertEqual(alloc['mined_pct'],               '92%')
         self.assertEqual(alloc['vc_allocation'],           'None — ever.')
 

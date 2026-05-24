@@ -3,11 +3,11 @@ Obelyth Miner Daemon
 ========================
 Runs on the GPU provider's machine.
 Registers hardware, accepts compute jobs, runs inference/fine-tuning,
-submits results with verification hash, earns NXS rewards.
+submits results with verification hash, earns OBY rewards.
 
 Usage:
   python -m compute.miner \
-    --wallet-address NXS... \
+    --wallet-address OBY... \
     --node http://seed.obelyth.io:8334 \
     --stake 5000
 """
@@ -233,16 +233,16 @@ class MinerDaemon:
         self,
         wallet_address : str,
         node_url       : str,
-        stake_nxs      : float,
+        stake_oby      : float,
         region         : str  = 'auto',
     ):
         self.address   = wallet_address
         self.node_url  = node_url.rstrip('/')
-        self.stake_nxs = stake_nxs
+        self.stake_oby = stake_oby
         self.region    = region or self._detect_region()
         self.runner    = JobRunner()
         self._running  = False
-        self._earnings = 0.0   # NXS earned this session
+        self._earnings = 0.0   # OBY earned this session
 
     def start(self):
         log.info("=== Obelyth Miner Starting ===")
@@ -271,7 +271,7 @@ class MinerDaemon:
             'vram_gb'      : gpu.get('vram_mb', 0) // 1024,
             'bandwidth_gbps': measure_bandwidth(),
             'region'       : self.region,
-            'stake_nxs'    : self.stake_nxs,
+            'stake_oby'    : self.stake_oby,
             'benchmark'    : bench,
         }
         resp = self._post('/compute/register', payload)
@@ -296,7 +296,7 @@ class MinerDaemon:
                 log.error(f"Job loop error: {e}")
                 time.sleep(10)
 
-        log.info(f"Miner stopped. Total earned: {self._earnings:.4f} NXS")
+        log.info(f"Miner stopped. Total earned: {self._earnings:.4f} OBY")
 
     def _execute_job(self, job: dict):
         job_id   = job['job_id']
@@ -331,8 +331,8 @@ class MinerDaemon:
             if resp:
                 reward = resp.get('oby_reward', 0.0)
                 self._earnings += reward
-                log.info(f"Job {job_id} complete. Reward: {reward:.4f} NXS "
-                         f"(total: {self._earnings:.4f} NXS)")
+                log.info(f"Job {job_id} complete. Reward: {reward:.4f} OBY "
+                         f"(total: {self._earnings:.4f} OBY)")
 
         except Exception as e:
             log.error(f"Job {job_id} failed: {e}")
@@ -351,7 +351,7 @@ class MinerDaemon:
                 'earnings': self._earnings,
                 'uptime_s': self.HEARTBEAT_SECS,
             })
-            log.debug(f"Heartbeat. Earnings: {self._earnings:.4f} NXS")
+            log.debug(f"Heartbeat. Earnings: {self._earnings:.4f} OBY")
 
     def _detect_region(self) -> str:
         try:
@@ -389,16 +389,16 @@ def main():
         datefmt= '%H:%M:%S',
     )
     parser = argparse.ArgumentParser(description='Obelyth GPU Miner')
-    parser.add_argument('--wallet-address', required=True, help='Your NXS wallet address')
+    parser.add_argument('--wallet-address', required=True, help='Your OBY wallet address')
     parser.add_argument('--node',           default='http://127.0.0.1:8334', help='Node URL')
-    parser.add_argument('--stake',          type=float, default=1000.0, help='NXS stake amount')
+    parser.add_argument('--stake',          type=float, default=1000.0, help='OBY stake amount')
     parser.add_argument('--region',         default='auto', help='Geographic region')
     args = parser.parse_args()
 
     daemon = MinerDaemon(
         wallet_address = args.wallet_address,
         node_url       = args.node,
-        stake_nxs      = args.stake,
+        stake_oby      = args.stake,
         region         = args.region,
     )
     daemon.start()

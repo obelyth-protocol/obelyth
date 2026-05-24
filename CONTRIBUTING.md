@@ -1,6 +1,6 @@
 # Contributing to Obelyth
 
-Thank you for contributing. Every merged PR earns points in the pre-mainnet community tracker toward your testnet genesis NRN allocation. See the [leaderboard](https://obelyth.io/leaderboard) to track your progress.
+Thank you for contributing. Every merged PR earns points in the pre-mainnet community tracker toward your testnet genesis OBY allocation. See the [leaderboard](https://obelyth.io/leaderboard) to track your progress.
 
 ## Getting Started
 
@@ -18,7 +18,7 @@ python launch.py   # starts a local testnet node
 |---|---|---|
 | **Rust port** | `core/`, `network/` | Highest — see `docs/RUST_PORT.md` |
 | **vLLM integration** | `compute/miner.py` | High — needs GPU end-to-end test |
-| **JS/TS SDK** | `sdk/` | High — port of `sdk/norn.py` |
+| **JS/TS SDK** | `sdk/` | High — port of `sdk/obelyth.py` |
 | **Network explorer** | New | High — React frontend |
 | **Tests** | `tests/` | Medium — coverage is low |
 | **Documentation** | `docs/` | Medium — tutorials, translations |
@@ -51,7 +51,7 @@ Refs: #123
 
 Types: `feat` · `fix` · `docs` · `test` · `refactor` · `perf` · `chore`
 
-## Earning Testnet NRN
+## Earning Testnet OBY
 
 Your contributions are tracked automatically:
 

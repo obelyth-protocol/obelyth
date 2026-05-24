@@ -21,7 +21,7 @@ log = logging.getLogger('obelyth.network')
 
 # ── Protocol Constants ────────────────────────────────────────────────────────
 PROTOCOL_VERSION = 1
-MAGIC            = b'NXS1'          # 4-byte magic prefix for all frames
+MAGIC            = b'OBY1'          # 4-byte magic prefix for all frames
 MAX_MESSAGE_SIZE = 10 * 1024 * 1024 # 10 MB
 PING_INTERVAL    = 30               # seconds
 PEER_TIMEOUT     = 90               # disconnect after this many seconds of silence

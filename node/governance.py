@@ -25,7 +25,7 @@ PHASE 3 — Year 3-4: Steering Committee + Community
   - Emergency veto: ONLY for constitutional parameter threats
 
 CONSTITUTIONAL PARAMETERS (cannot be changed by any governance vote):
-  - 21,000,000 NXS hard cap
+  - 21,000,000 OBY hard cap
   - 90% liquidity lock
   - Creator Share (5% of fees)
   - DAO mining tax (5% of miner earnings)
@@ -34,7 +34,7 @@ CONSTITUTIONAL PARAMETERS (cannot be changed by any governance vote):
 EMERGENCY VETO SCOPE (founder can block):
   ✓ Proposal to reduce Creator Share
   ✓ Proposal to unlock liquidity reserve
-  ✓ Proposal to change NXS supply cap
+  ✓ Proposal to change OBY supply cap
   ✓ Proposal to eliminate DAO mining tax
   ✗ Routine treasury allocation founder disagrees with
   ✗ Grant recipient founder doesn't prefer
@@ -60,7 +60,7 @@ PHASE_1_END_DAYS     = 365        # ~Year 1
 PHASE_2_END_DAYS     = 730        # ~Year 2
 PHASE_3_START_DAYS   = 730        # Year 3+ steering committee
 
-# Phase 2 quorum requirements (% of circulating NXS supply)
+# Phase 2 quorum requirements (% of circulating OBY supply)
 QUORUM_ROUTINE       = 0.15       # 15% for routine decisions
 QUORUM_TREASURY      = 0.25       # 25% for treasury allocations
 QUORUM_CONSTITUTIONAL= 0.90       # 90% supermajority for constitutional changes
@@ -101,7 +101,7 @@ class ProposalType(str, Enum):
     GRANT           = 'grant'            # ecosystem grant
     STEERING_CHANGE = 'steering_change'  # add/remove committee member
     CONSTITUTIONAL  = 'constitutional'   # change protected parameters (requires 90%)
-    EXCHANGE_LISTING= 'exchange_listing' # NXS vault for exchange liquidity
+    EXCHANGE_LISTING= 'exchange_listing' # OBY vault for exchange liquidity
     BURN_ENABLE     = 'burn_enable'      # enable/adjust DAO burn
 
 
@@ -131,10 +131,10 @@ class Proposal:
     title           : str
     description     : str
     proposal_type   : ProposalType
-    proposed_by     : str           # NXS address
+    proposed_by     : str           # OBY address
     phase_created   : GovernancePhase
     # Voting
-    votes_for       : float = 0.0   # NXS weight
+    votes_for       : float = 0.0   # OBY weight
     votes_against   : float = 0.0
     votes_abstain   : float = 0.0
     voter_count     : int   = 0
@@ -177,7 +177,7 @@ class Vote:
     proposal_id : str
     voter_addr  : str
     choice      : VoteChoice
-    oby_weight  : float     # NXS balance at snapshot
+    oby_weight  : float     # OBY balance at snapshot
     cast_at     : int = field(default_factory=lambda: int(time.time()))
 
     def to_dict(self) -> dict:
@@ -214,7 +214,7 @@ class GovernanceEngine:
         db_path          : str,
         genesis_timestamp: int,
         founder_address  : str,
-        circulating_supply_fn: callable = None,  # returns current NXS supply
+        circulating_supply_fn: callable = None,  # returns current OBY supply
     ):
         self.db_path      = db_path
         self.genesis_ts   = genesis_timestamp
@@ -470,8 +470,8 @@ class GovernanceEngine:
             )
 
         self._log('vote_cast', voter_addr, proposal_id,
-                  f'{choice.value} {oby_balance:.2f} NXS')
-        return True, f"Vote recorded: {choice.value} ({oby_balance:.2f} NXS)"
+                  f'{choice.value} {oby_balance:.2f} OBY')
+        return True, f"Vote recorded: {choice.value} ({oby_balance:.2f} OBY)"
 
     def finalize_proposal(
         self,
@@ -489,8 +489,8 @@ class GovernanceEngine:
 
         phase           = self.current_phase
         circulating     = self._get_supply()
-        quorum_nxs      = circulating * proposal.quorum_required
-        quorum_met      = proposal.total_votes >= quorum_nxs
+        quorum_oby      = circulating * proposal.quorum_required
+        quorum_met      = proposal.total_votes >= quorum_oby
 
         # ── Phase 1: founder decides ──
         if phase == GovernancePhase.FOUNDER_AUTHORITY:
@@ -520,13 +520,13 @@ class GovernanceEngine:
                                    else ProposalStatus.FAILED)
                 msg = (
                     f"Quorum not met ({proposal.total_votes:.0f}/"
-                    f"{quorum_nxs:.0f} NXS) — "
+                    f"{quorum_oby:.0f} OBY) — "
                     f"founder decision: {founder_override}"
                 )
             else:
                 msg = (
                     f"Quorum not met ({proposal.total_votes:.0f}/"
-                    f"{quorum_nxs:.0f} NXS required). "
+                    f"{quorum_oby:.0f} OBY required). "
                     f"Awaiting founder casting decision."
                 )
             self._save_proposal(proposal)
@@ -538,7 +538,7 @@ class GovernanceEngine:
         approved = proposal.approval_pct >= proposal.approval_required
         proposal.status = ProposalStatus.PASSED if approved else ProposalStatus.FAILED
         msg = (
-            f"Quorum met ({proposal.total_votes:.0f} NXS). "
+            f"Quorum met ({proposal.total_votes:.0f} OBY). "
             f"Approval: {proposal.approval_pct*100:.1f}% "
             f"({'✓' if approved else '✗'} threshold {proposal.approval_required*100:.0f}%)"
         )
@@ -653,8 +653,8 @@ class GovernanceEngine:
             'proposals'         : proposal_counts,
             'committee_size'    : len(committee),
             'committee_members' : [m.to_dict() for m in committee],
-            'quorum_routine'    : f'{QUORUM_ROUTINE*100:.0f}% of circulating NXS',
-            'quorum_treasury'   : f'{QUORUM_TREASURY*100:.0f}% of circulating NXS',
+            'quorum_routine'    : f'{QUORUM_ROUTINE*100:.0f}% of circulating OBY',
+            'quorum_treasury'   : f'{QUORUM_TREASURY*100:.0f}% of circulating OBY',
             'constitutional_threshold': f'{QUORUM_CONSTITUTIONAL*100:.0f}% supermajority',
             'veto_scope'        : CONSTITUTIONAL_PARAMS,
         }

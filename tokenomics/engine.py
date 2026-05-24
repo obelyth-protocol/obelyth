@@ -42,7 +42,7 @@ log = logging.getLogger('obelyth.tokenomics')
 
 # ── Supply ─────────────────────────────────────────────────────────────────────
 TOTAL_OBY_SUPPLY     = 21_000_000.0
-FOUNDER_NXS          = TOTAL_OBY_SUPPLY * 0.03
+FOUNDER_OBY          = TOTAL_OBY_SUPPLY * 0.03
 
 # ── Fee Split (constitutional) ─────────────────────────────────────────────────
 FEE_TO_LIQUIDITY     = 0.90
@@ -59,12 +59,12 @@ INITIAL_BLOCK_REWARD = 50.0
 HALVING_INTERVAL     = 210_000
 BOOTSTRAP_BLOCKS     = 52_560
 BOOTSTRAP_BONUS      = 2.0
-UPTIME_BONUS_NXS     = 0.5
+UPTIME_BONUS_OBY     = 0.5
 
 # ── DAO Mining Tax ─────────────────────────────────────────────────────────────
-# 5% of ALL NXS earned by miners (block rewards + compute job rewards)
+# 5% of ALL OBY earned by miners (block rewards + compute job rewards)
 # Constitutional — enforced at consensus layer, not DAO-controlled
-# Sits in DAO vault as NXS; governance decides deployment
+# Sits in DAO vault as OBY; governance decides deployment
 DAO_MINING_TAX_PCT   = 0.05
 
 # ── Compute Pricing ────────────────────────────────────────────────────────────
@@ -255,19 +255,19 @@ class MultiAssetAMMPool:
     def quote_buy_with_stable(
         self, coin: Stablecoin, amount: float, rates: OracleRates
     ) -> float:
-        """How much NXS for `amount` of stablecoin `coin`."""
+        """How much OBY for `amount` of stablecoin `coin`."""
         usd_in         = amount * rates.get(coin)
         usd_after_fee  = usd_in * (1 - AMM_FEE_PCT)
         new_usd        = self.basket_usd_reserve + usd_after_fee
         if new_usd <= 0:
             return 0.0
-        new_nxs        = self.k / new_usd
-        return round(max(0, self.oby_reserve - new_nxs), 8)
+        new_oby        = self.k / new_usd
+        return round(max(0, self.oby_reserve - new_oby), 8)
 
-    def quote_sell_nxs(self, oby_amount: float, coin: Stablecoin, rates: OracleRates) -> float:
-        """How much of stablecoin `coin` for `oby_amount` NXS."""
-        new_nxs        = self.oby_reserve + oby_amount
-        new_usd        = self.k / new_nxs
+    def quote_sell_oby(self, oby_amount: float, coin: Stablecoin, rates: OracleRates) -> float:
+        """How much of stablecoin `coin` for `oby_amount` OBY."""
+        new_oby        = self.oby_reserve + oby_amount
+        new_usd        = self.k / new_oby
         gross_usd      = self.basket_usd_reserve - new_usd
         net_usd        = gross_usd * (1 - AMM_FEE_PCT)
         return round(net_usd / rates.get(coin), 6)
@@ -275,7 +275,7 @@ class MultiAssetAMMPool:
     def execute_buy(
         self, coin: Stablecoin, amount: float, rates: OracleRates
     ) -> float:
-        """User pays `amount` stablecoin, receives NXS. Returns NXS out."""
+        """User pays `amount` stablecoin, receives OBY. Returns OBY out."""
         if self.basket_usd_reserve < MIN_LIQUIDITY:
             raise ValueError("Pool not seeded yet")
         oby_out       = self.quote_buy_with_stable(coin, amount, rates)
@@ -291,17 +291,17 @@ class MultiAssetAMMPool:
     def execute_sell(
         self, oby_in: float, coin: Stablecoin, rates: OracleRates
     ) -> float:
-        """User pays NXS, receives stablecoin. Returns stablecoin out."""
+        """User pays OBY, receives stablecoin. Returns stablecoin out."""
         if self.basket_usd_reserve < MIN_LIQUIDITY:
             raise ValueError("Pool not seeded yet")
-        stable_out     = self.quote_sell_nxs(oby_in, coin, rates)
+        stable_out     = self.quote_sell_oby(oby_in, coin, rates)
         usd_out        = stable_out * rates.get(coin)
         # Pay out from most overweight stablecoin if requested coin is short
         available = self.stablecoin_balances.get(coin)
         if available < stable_out:
             # Fall back to most overweight stablecoin
             coin       = self.stablecoin_balances.most_overweight(rates.__dict__)
-            stable_out = self.quote_sell_nxs(oby_in, coin, rates)
+            stable_out = self.quote_sell_oby(oby_in, coin, rates)
             usd_out    = stable_out * rates.get(coin)
         self.oby_reserve                  += oby_in
         self.basket_usd_reserve           -= usd_out
@@ -321,14 +321,14 @@ class MultiAssetAMMPool:
         usd_value = amount * rates.get(coin)
         if self.basket_usd_reserve < MIN_LIQUIDITY:
             if oby_amount <= 0:
-                raise ValueError("Must provide NXS to seed pool")
+                raise ValueError("Must provide OBY to seed pool")
             self.basket_usd_reserve = usd_value
             self.oby_reserve        = oby_amount
             self.stablecoin_balances.add(coin, amount)
             self.total_usd_in      += usd_value
             log.info(
                 f"Pool seeded: ${usd_value:,.2f} USD ({amount:,.2f} {coin.value}) "
-                f"+ {oby_amount:,.2f} NXS → ${self.spot_price_usd:.4f}/NXS"
+                f"+ {oby_amount:,.2f} OBY → ${self.spot_price_usd:.4f}/OBY"
             )
         else:
             ratio      = usd_value / self.basket_usd_reserve
@@ -415,8 +415,8 @@ class DAOFund:
     burn_pct_of_dao   : float = 0.0
     multisig_address  : str   = ''
     is_multisig       : bool  = True
-    # DAO Vault — NXS from 5% mining tax (block rewards + compute job rewards)
-    vault_nxs         : float = 0.0    # total NXS accumulated in vault
+    # DAO Vault — OBY from 5% mining tax (block rewards + compute job rewards)
+    vault_oby         : float = 0.0    # total OBY accumulated in vault
     vault_deposits    : int   = 0      # number of tax deposits received
 
     def to_dict(self) -> dict:
@@ -428,7 +428,7 @@ class DAOFund:
             'burn_pct_of_dao'    : self.burn_pct_of_dao,
             'multisig_address'   : self.multisig_address,
             'is_multisig'        : self.is_multisig,
-            'vault_nxs'          : round(self.vault_nxs, 8),
+            'vault_oby'          : round(self.vault_oby, 8),
             'vault_deposits'     : self.vault_deposits,
         }
 
@@ -462,7 +462,7 @@ class MinerProfile:
     vram_gb        : int
     bandwidth_gbps : float
     region         : str
-    stake_nxs      : float
+    stake_oby      : float
     online_since   : int   = field(default_factory=lambda: int(time.time()))
     jobs_completed : int   = 0
     jobs_failed    : int   = 0
@@ -476,7 +476,7 @@ class MinerProfile:
             self.reputation              * 0.40 +
             min(1.0, self.gpu_count / 8) * 0.30 +
             min(1.0, self.bandwidth_gbps / 25) * 0.20 +
-            min(1.0, self.stake_nxs / 10_000)  * 0.10
+            min(1.0, self.stake_oby / 10_000)  * 0.10
         )
 
     def to_dict(self) -> dict:
@@ -528,7 +528,7 @@ class TokenomicsEngine:
     def update_oby_price(self, price: float):
         self._oby_price = max(1e-8, price)
 
-    def _usd_to_nxs(self, usd: float) -> float:
+    def _usd_to_oby(self, usd: float) -> float:
         return round(usd / self._oby_price, 8)
 
     def _stable_to_usd(self, coin: Stablecoin, amount: float) -> float:
@@ -545,7 +545,7 @@ class TokenomicsEngine:
         """
         Seed the AMM pool at launch.
         Example: seed_pool(Stablecoin.USDC, 100_000, 1_000_000)
-        → initial price $0.10/NXS
+        → initial price $0.10/OBY
         """
         with self._lock:
             self.pool.add_liquidity(coin, amount, self.rates, oby_amount)
@@ -570,8 +570,8 @@ class TokenomicsEngine:
                     self.pool.add_liquidity(coin, amount, self.rates, oby_share)
         log.info(
             f"Pool seeded with {len(seeds)} stablecoins | "
-            f"${total_usd:,.2f} USD | {oby_total:,.0f} NXS | "
-            f"price=${self.pool.spot_price_usd:.4f}/NXS"
+            f"${total_usd:,.2f} USD | {oby_total:,.0f} OBY | "
+            f"price=${self.pool.spot_price_usd:.4f}/OBY"
         )
 
     # ── Fee Processing ─────────────────────────────────────────────────────────
@@ -640,13 +640,13 @@ class TokenomicsEngine:
 
     # ── Swaps ──────────────────────────────────────────────────────────────────
 
-    def buy_nxs(
+    def buy_oby(
         self,
         coin      : Stablecoin,
         amount    : float,
         user_addr : str = '',
     ) -> dict:
-        """User buys NXS with any supported stablecoin."""
+        """User buys OBY with any supported stablecoin."""
         with self._lock:
             if self.pool.basket_usd_reserve < MIN_LIQUIDITY:
                 raise ValueError("Pool not seeded yet")
@@ -656,7 +656,7 @@ class TokenomicsEngine:
             impact       = (price_after - price_before) / price_before * 100
 
         log.info(
-            f"BUY {amount:.4f} {coin.value} → {oby_out:.4f} NXS "
+            f"BUY {amount:.4f} {coin.value} → {oby_out:.4f} OBY "
             f"impact={impact:+.3f}% {user_addr[:16]}"
         )
         return {
@@ -671,13 +671,13 @@ class TokenomicsEngine:
                                 if oby_out else 0,
         }
 
-    def sell_nxs(
+    def sell_oby(
         self,
         oby_in    : float,
         coin      : Stablecoin,
         user_addr : str = '',
     ) -> dict:
-        """User sells NXS for any supported stablecoin."""
+        """User sells OBY for any supported stablecoin."""
         with self._lock:
             price_before = self.pool.spot_price_usd
             stable_out   = self.pool.execute_sell(oby_in, coin, self.rates)
@@ -707,7 +707,7 @@ class TokenomicsEngine:
 
     def quote_sell(self, oby_in: float, coin: Stablecoin) -> dict:
         with self._lock:
-            stable_out = self.pool.quote_sell_nxs(oby_in, coin, self.rates)
+            stable_out = self.pool.quote_sell_oby(oby_in, coin, self.rates)
         return {
             'oby_in'     : oby_in,
             'coin'       : coin.value,
@@ -735,11 +735,11 @@ class TokenomicsEngine:
         )['stable_cost']
         receipt = self.process_job_fee(job_id, coin, stable)
 
-        # Gross NXS reward valued at current spot price
-        gross_nxs    = self._usd_to_nxs(receipt.liquidity_usd)
-        # Apply 5% DAO mining tax on compute job NXS rewards
-        dao_tax_nxs  = round(gross_nxs * DAO_MINING_TAX_PCT, 8)
-        miner_nxs    = round(gross_nxs - dao_tax_nxs, 8)
+        # Gross OBY reward valued at current spot price
+        gross_oby    = self._usd_to_oby(receipt.liquidity_usd)
+        # Apply 5% DAO mining tax on compute job OBY rewards
+        dao_tax_oby  = round(gross_oby * DAO_MINING_TAX_PCT, 8)
+        miner_oby    = round(gross_oby - dao_tax_oby, 8)
 
         job = ComputeJob(
             job_id         = job_id,
@@ -750,15 +750,15 @@ class TokenomicsEngine:
             stablecoin     = coin.value,
             stable_paid    = stable,
             usd_paid       = receipt.gross_usd,
-            oby_to_miner   = miner_nxs,
+            oby_to_miner   = miner_oby,
         )
         with self._lock:
             self._jobs[job_id]       = job
-            self.dao.vault_nxs      += dao_tax_nxs
+            self.dao.vault_oby      += dao_tax_oby
             self.dao.vault_deposits += 1
         log.info(
-            f"Job {job_id} | miner gets {miner_nxs:.4f} NXS | "
-            f"dao vault +{dao_tax_nxs:.4f} NXS (5% tax)"
+            f"Job {job_id} | miner gets {miner_oby:.4f} OBY | "
+            f"dao vault +{dao_tax_oby:.4f} OBY (5% tax)"
         )
         return job, receipt
 
@@ -850,11 +850,11 @@ class TokenomicsEngine:
             m = self._miners.get(addr)
             if not m:
                 return
-            slash = m.stake_nxs * pct
-            m.stake_nxs  = max(0, m.stake_nxs - slash)
+            slash = m.stake_oby * pct
+            m.stake_oby  = max(0, m.stake_oby - slash)
             m.reputation = max(0.0, m.reputation - 0.15)
             m.jobs_failed += 1
-        log.warning(f"Slashed {addr[:16]} -{slash:.2f} NXS")
+        log.warning(f"Slashed {addr[:16]} -{slash:.2f} OBY")
 
     def record_uptime(self, addr: str, hours: float) -> float:
         with self._lock:
@@ -862,13 +862,13 @@ class TokenomicsEngine:
             if not m:
                 return 0.0
             m.uptime_hours += hours
-            bonus = hours * UPTIME_BONUS_NXS
+            bonus = hours * UPTIME_BONUS_OBY
             m.oby_earned  += bonus
             return bonus
 
     # ── Block Reward ───────────────────────────────────────────────────────────
 
-    def block_reward_nxs(self, height: int) -> float:
+    def block_reward_oby(self, height: int) -> float:
         halvings = height // HALVING_INTERVAL
         if halvings >= 64:
             return 0.0
@@ -950,8 +950,8 @@ class TokenomicsEngine:
             'dao_burn_enabled'      : self.dao.burn_enabled,
             'dao_oby_burned'        : round(self.dao.oby_burned, 6),
             'dao_is_multisig'       : self.dao.is_multisig,
-            # DAO Vault — NXS income (5% mining tax on all miner earnings)
-            'dao_vault_nxs'         : round(self.dao.vault_nxs, 8),
+            # DAO Vault — OBY income (5% mining tax on all miner earnings)
+            'dao_vault_oby'         : round(self.dao.vault_oby, 8),
             'dao_vault_deposits'    : self.dao.vault_deposits,
             'dao_mining_tax_pct'    : DAO_MINING_TAX_PCT * 100,
 

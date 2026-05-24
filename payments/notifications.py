@@ -47,8 +47,8 @@ log = logging.getLogger('obelyth.notifications')
 # ── Config (set via environment variables in production) ───────────────────────
 SMTP_HOST    = 'smtp.gmail.com'
 SMTP_PORT    = 587
-SMTP_USER    = ''    # set NEXUS_SMTP_USER env var
-SMTP_PASS    = ''    # set NEXUS_SMTP_PASS env var
+SMTP_USER    = ''    # set OBELYTH_SMTP_USER env var
+SMTP_PASS    = ''    # set OBELYTH_SMTP_PASS env var
 FROM_EMAIL   = 'no-reply@Obelyth_Chain.io'
 SITE_URL     = 'https://obelyth.io'
 WEBHOOK_RETRIES   = 3
@@ -245,13 +245,13 @@ class EmailNotifier:
         self.registry  = registry
         self.smtp_host = smtp_host
         self.smtp_port = smtp_port
-        self.smtp_user = smtp_user or __import__('os').environ.get('NEXUS_SMTP_USER', '')
-        self.smtp_pass = smtp_pass or __import__('os').environ.get('NEXUS_SMTP_PASS', '')
+        self.smtp_user = smtp_user or __import__('os').environ.get('OBELYTH_SMTP_USER', '')
+        self.smtp_pass = smtp_pass or __import__('os').environ.get('OBELYTH_SMTP_PASS', '')
         self._enabled  = bool(self.smtp_user and self.smtp_pass)
         if not self._enabled:
             log.warning(
                 "Email notifications disabled — "
-                "set NEXUS_SMTP_USER and NEXUS_SMTP_PASS to enable"
+                "set OBELYTH_SMTP_USER and OBELYTH_SMTP_PASS to enable"
             )
 
     def send_welcome(self, account: DeveloperAccount, api_key: str):
@@ -306,7 +306,7 @@ class EmailNotifier:
                 font-size:12px;overflow-x:auto;">
 pip install obelyth-sdk
 
-from nexus import ObelythClient
+from obelyth import ObelythClient
 client = ObelythClient(api_key="{api_key[:20]}...")
 
 # Drop-in for HuggingFace pipeline

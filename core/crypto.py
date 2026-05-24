@@ -183,19 +183,19 @@ class VestingSchedule:
     def __init__(
         self,
         founder_address: str,
-        total_nxs: float,
+        total_oby: float,
         cliff_months: int  = 12,
         total_months: int  = 48,
         genesis_timestamp: int = None,
     ):
         self.founder_address  = founder_address
-        self.total_nxs        = total_nxs
+        self.total_oby        = total_oby
         self.cliff_months     = cliff_months
         self.total_months     = total_months
         self.genesis_timestamp = genesis_timestamp or int(__import__('time').time())
 
     def vested_amount(self, at_timestamp: int) -> float:
-        """Return how many NXS are unlocked at the given Unix timestamp."""
+        """Return how many OBY are unlocked at the given Unix timestamp."""
         import time
         elapsed_seconds = at_timestamp - self.genesis_timestamp
         elapsed_months  = elapsed_seconds / (30.44 * 86400)   # avg month
@@ -204,15 +204,15 @@ class VestingSchedule:
             return 0.0
 
         fraction = min(1.0, elapsed_months / self.total_months)
-        return round(self.total_nxs * fraction, 8)
+        return round(self.total_oby * fraction, 8)
 
     def locked_amount(self, at_timestamp: int) -> float:
-        return round(self.total_nxs - self.vested_amount(at_timestamp), 8)
+        return round(self.total_oby - self.vested_amount(at_timestamp), 8)
 
     def to_dict(self) -> dict:
         return {
             'founder_address' : self.founder_address,
-            'total_nxs'       : self.total_nxs,
+            'total_oby'       : self.total_oby,
             'cliff_months'    : self.cliff_months,
             'total_months'    : self.total_months,
             'genesis_timestamp': self.genesis_timestamp,
