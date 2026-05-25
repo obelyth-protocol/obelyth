@@ -523,7 +523,9 @@ strong { font-weight: 700; }
       <li><a href="#governance">Governance</a><span class="toc-pg">§7</span></li>
       <li><a href="#founder">Founder Disclosure</a><span class="toc-pg">§8</span></li>
       <li><a href="#roadmap">Roadmap</a><span class="toc-pg">§9</span></li>
-      <li><a href="#legal">Legal Notices</a><span class="toc-pg">§10</span></li>
+      <li><a href="#architecture">Unified Architecture</a><span class="toc-pg">§10</span></li>
+      <li><a href="#privacy">Privacy Architecture</a><span class="toc-pg">§11</span></li>
+      <li><a href="#legal">Legal Notices</a><span class="toc-pg">§11</span></li>
       <li><a href="#testnet">Testnet &amp; Decentralization</a><span class="toc-pg">§11</span></li>
       <li><a href="#incentives">Testnet Incentives</a><span class="toc-pg">§12</span></li>
       <li><a href="#security">Security &amp; Bug Bounty Program</a><span class="toc-pg">§13</span></li>
@@ -611,7 +613,26 @@ strong { font-weight: 700; }
 
   <p><strong>The verification solution.</strong> Verifying that a miner actually ran an AI job — rather than faking the result — is the fundamental challenge of PoUW. Obelyth uses optimistic verification with random challenge audits:</p>
 
-  <p>When a miner completes a job, the result is accepted optimistically. A random subset of validators re-run a small portion of the work. If a challenge is raised and the miner's result does not match, 20% of their staked OBY is slashed. The probability of challenge scales inversely with reputation — a trusted miner with 100+ clean jobs is challenged only 5% of the time; a new miner is challenged 30% of the time.</p>
+  <p>When a miner completes a job, the result is accepted optimistically. A deterministic per-job seed selects which results are challenged, and challenged jobs are re-run in full by an independent verifier — not by sampling a slice of the work, because sampling lets a malicious miner fake the unsampled fraction. If the verifier's output hash does not match the miner's, 20% of their staked OBY is slashed. The probability of challenge scales with miner reputation across three tiers:</p>
+
+  <table class="spec-table">
+    <thead><tr><th>Miner Status</th><th>Challenge Rate</th><th>Condition</th></tr></thead>
+    <tbody>
+      <tr><td>New miner</td><td>30%</td><td>Default for all new participants</td></tr>
+      <tr><td>Trusted miner</td><td>5%</td><td>Reputation score &gt; 0.95 with 100+ completed jobs</td></tr>
+      <tr><td>Slashed miner</td><td>60%</td><td>Reputation score &lt; 0.7 following a failed challenge</td></tr>
+    </tbody>
+  </table>
+
+  <p><strong>Determinism enforcement.</strong> A job that cannot be deterministically rerun cannot be verified, so submission requires a pinned envelope: SHA-256 model hash, OCI container digest, a fixed inference seed, and input payload and schema hashes. Jobs missing any of these are rejected before they enter the pool. This closes the most subtle attack on PoUW — that GPU driver, kernel, and quantization variance create plausible deniability for false results.</p>
+
+  <p><strong>Stake-weighted job assignment.</strong> Jobs are routed to miners via stake-weighted random sampling, not reputation. The choice is deliberate: reputation-weighted assignment creates a Sybil reputation market and a rich-get-richer concentration where the highest-reputation miners receive all the work and new miners cannot break in. Stake-weighting still requires capital to participate, which is the actual Sybil deterrent. Reputation is reserved for what only reputation should gate: challenge rate, stake-sizing, throttles, and dispute resolution.</p>
+
+  <p><strong>Planned escalating consequences for fraud.</strong> The following mechanics are being finalised during testnet. First offence: 20% stake slash and reputation reset to zero, returning the miner to 30% challenge rate. Second offence: 50% stake slash and a time-locked ban from the network. The developer whose job was faked receives a refund funded automatically from the slashed stake, capped at twice the job payment. Repeated fraud burns through stake faster than any possible gain from faking jobs, making fraud economically irrational. These parameters will be stress-tested against real adversarial conditions during testnet before mainnet launch.</p>
+
+  <p><strong>Community design review.</strong> The architectural choices in this section — full-job reruns instead of slice sampling, stake-weighted assignment instead of reputation-weighted, and the pinned determinism envelope — were driven by community design review during the pre-testnet phase. The framing the feedback inspired — "making disagreement boring enough that consensus can survive it" — is the design principle for this layer.</p>
+
+  <p><strong>Long-term: ZK proof verification.</strong> Optimistic verification is the pragmatic starting point — ZK proofs of inference are the destination. EZKL and Risc Zero can generate cryptographic proofs that a specific model ran a specific input and produced a specific output, making fraud mathematically impossible rather than economically discouraged. Current ZK proof generation overhead is 100x-1000x the cost of running the inference itself, making it too slow for production workloads at launch. This changes as the technology matures. ZK verification is on the roadmap at Month 12-18 and requires a DAO governance vote before implementation.</p>
 
   <p>The future path is ZK proofs (EZKL, Risc Zero) that mathematically prove correct execution without re-running the work at all. The infrastructure is stubbed in the codebase and will replace random audits in the Rust production node.</p>
 
@@ -847,10 +868,237 @@ print(result.generated_text)</pre>
 
   <div class="section-rule"></div>
 
-  <!-- §10 Legal -->
-  <div id="legal" class="chapter">
+  <!-- §10 Unified Architecture -->
+  <div id="architecture" class="chapter">
     <div class="chapter-num">X</div>
-    <span class="chapter-tag">§10 — Legal Notices</span>
+    <span class="chapter-tag">§10 — Unified Architecture</span>
+    <h2>How Everything Fits Together</h2>
+  </div>
+
+  <p class="lead">Obelyth is four layers working as one product. From the developer's perspective it is two lines of code and a USDC payment. Everything else — verification, privacy, economic settlement, governance — is invisible infrastructure.</p>
+
+  <h3>The Four-Layer Stack</h3>
+
+  <pre style="background:var(--cream);padding:1.2rem;font-family:'IBM Plex Mono',monospace;font-size:0.82rem;line-height:1.7;border-left:3px solid var(--gold);overflow-x:auto;">
+┌─────────────────────────────────────────────────────────┐
+│                    DEVELOPER LAYER                       │
+│          ObelythClient SDK — two lines of code           │
+│          Pays in USDC / DAI / USDT / EURC               │
+│          Chooses job tier via single parameter           │
+└──────────────────────────┬──────────────────────────────┘
+                           │
+┌──────────────────────────▼──────────────────────────────┐
+│                    PROTOCOL LAYER                        │
+│      Job routing, verification, result aggregation       │
+│      AMM liquidity reserve, fee split enforcement        │
+│      Governance, DAO vault, reputation system            │
+└──────────────────────────┬──────────────────────────────┘
+                           │
+┌──────────────────────────▼──────────────────────────────┐
+│                    COMPUTE LAYER                         │
+│   Standard │ Redundant Parallel │ Pipeline │ TEE │ ZK   │
+│       vLLM execution, shard routing, attestation         │
+│         Stake-weighted miner selection                   │
+└──────────────────────────┬──────────────────────────────┘
+                           │
+┌──────────────────────────▼──────────────────────────────┐
+│                   SETTLEMENT LAYER                       │
+│         Base chain — ~$0.001 per transaction             │
+│         Multicall3 batch settlement windows              │
+│         On-chain attestation registry                    │
+│         AMM smart contract — 90% liquidity lock          │
+└─────────────────────────────────────────────────────────┘</pre>
+
+  <h3>How a Job Flows Through the System</h3>
+
+  <p><strong>Step 1 — Developer submits via SDK.</strong> The developer calls the SDK with a prompt, model name, and optional tier parameter. The SDK encrypts the prompt using ECDH session key exchange, attaches the job specification — model, token count, hardware tier required, execution tier — and submits to the nearest node. The developer never interacts with the blockchain directly.</p>
+
+  <p><strong>Step 2 — Node routes the job.</strong> The node selects miners using stake-weighted randomness. Standard jobs go to one miner. Redundant parallel goes to three. Private jobs route only to attestation-verified miners. Pipeline parallel routes to a geographically proximate miner group. The node routes the encrypted job without ever seeing the plaintext prompt.</p>
+
+  <p><strong>Step 3 — Miners execute.</strong> Miners receive the job, decrypt with the session key, run inference via vLLM, and return results with a cryptographic hash of the input and output. For redundant parallel, three miners return independently — agreement means all three are paid, divergence immediately identifies the outlier and triggers slashing. For pipeline parallel, miners pass intermediate activations sequentially — no single miner sees both the full input and output.</p>
+
+  <p><strong>Step 4 — Fee settlement.</strong> Job cost is deducted from the developer's internal balance. The 90/5/5 split executes — 90% queued for AMM deposit, 5% to Creator Share, 5% to DAO fund. Miner payment is issued minus the 5% DAO mining tax on OBY earnings. All settlement is batched via Multicall3 on Base chain once per settlement window. On-chain record contains only job IDs, hashes, and payment amounts — never prompt content.</p>
+
+  <p><strong>Step 5 — Developer receives result.</strong> The SDK decrypts the result and returns it to the developer's application. From the developer's perspective it is identical to calling a HuggingFace pipeline. The entire protocol stack is invisible.</p>
+
+  <h3>The Four Job Tiers</h3>
+
+  <table class="spec-table">
+    <thead><tr><th>Tier</th><th>Execution</th><th>Verification</th><th>Privacy</th><th>Cost vs AWS</th><th>Available</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><strong>Standard</strong></td>
+        <td>Single miner, vLLM execution</td>
+        <td>Optimistic challenge sampling. 30/5/60% challenge rate by reputation tier.</td>
+        <td>TLS + ECDH + sandboxed execution. Cloud-equivalent trust.</td>
+        <td>~56% cheaper</td>
+        <td>Testnet</td>
+      </tr>
+      <tr>
+        <td><strong>Redundant Parallel</strong></td>
+        <td>Three miners run complete job independently. Results compared at completion.</td>
+        <td>Deterministic. Majority consensus at job completion. Outlier immediately identified and slashed.</td>
+        <td>All three miners see full prompt. Same trust model as standard but stronger fraud detection.</td>
+        <td>~25–30% cheaper</td>
+        <td>Testnet</td>
+      </tr>
+      <tr>
+        <td><strong>Pipeline Parallel</strong></td>
+        <td>Model layers split across geographically proximate miners sequentially. Intermediate activations passed between miners.</td>
+        <td>Shard-level result checking. Each miner's output verified against expected activation shape and distribution.</td>
+        <td>Strong. No single miner sees both full input and full output. Reconstruction requires collusion across all miners in the pipeline.</td>
+        <td>~10–20% cheaper</td>
+        <td>Mainnet</td>
+      </tr>
+      <tr>
+        <td><strong>TEE Attested</strong></td>
+        <td>AMD SEV or NVIDIA H100 Confidential Computing. Enclave execution with on-chain attestation verification.</td>
+        <td>Cryptographic attestation. Proof that specific enclave ran specific code on specific hardware.</td>
+        <td>Hardware-attested. Miner OS cannot read job memory. Strongest available without FHE.</td>
+        <td>~5–10% cheaper</td>
+        <td>Month 6–12 post-mainnet</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <p><strong>ZK verification</strong> is available across tiers for models under 1B parameters at mainnet launch. Adding <code style="font-family:'IBM Plex Mono',monospace;background:var(--cream);padding:0.1rem 0.3rem;">zk=True</code> to any job generates a Groth16 proof of correct execution verifiable on Base chain. ZK for larger models targets Month 18–36 as EZKL and Risc Zero reduce proof generation overhead.</p>
+
+  <h3>How Privacy, Verification, and Performance Converge</h3>
+
+  <p>These are not three separate features — they are the same architectural decision viewed from three angles. Multi-miner execution improves all three simultaneously. Redundant parallel improves verification and reliability without privacy. Pipeline parallel improves all three — faster through parallelism, verifiable through shard checking, private through input fragmentation. TEE adds hardware attestation on top of any execution model. The full combination — pipeline parallel inside TEE enclaves with ZK proof output — is the strongest possible configuration and the long-term enterprise target.</p>
+
+  <h3>How the Economic Model Ties Everything Together</h3>
+
+  <p>Every job at every tier feeds the same economic engine. Developer pays stablecoins. 90% of that payment continuously deepens the AMM liquidity reserve — a value that never decreases regardless of market conditions. Miners earn OBY and have a direct incentive to bring in more developer volume because more volume deepens the reserve, which supports OBY liquidity, which makes their earnings worth more. Incentives between miners and developers point in the same direction.</p>
+
+  <p>The 5% DAO mining tax accumulates OBY in the vault automatically. This funds the bug bounty, ZK upgrades, governance proposals, and eventually exchange listing liquidity — all without requiring governance action to maintain.</p>
+
+  <h3>Honest Gaps — What Is Not Yet Built</h3>
+
+  <table class="spec-table">
+    <thead><tr><th>Feature</th><th>Status</th><th>Required For</th></tr></thead>
+    <tbody>
+      <tr><td>Result aggregation for redundant parallel</td><td>Not started</td><td>Testnet Tier 1</td></tr>
+      <tr><td>Geographic miner grouping for pipeline parallel</td><td>Not started</td><td>Mainnet</td></tr>
+      <tr><td>Inter-miner activation passing protocol</td><td>Not started</td><td>Mainnet</td></tr>
+      <tr><td>On-chain attestation registry (Base chain)</td><td>Not started</td><td>TEE tier post-mainnet</td></tr>
+      <tr><td>vLLM integration tested end-to-end</td><td>Stub only</td><td>Testnet Tier 1</td></tr>
+      <tr><td>ZK proof generation for small models</td><td>Not started</td><td>Mainnet</td></tr>
+      <tr><td>Rust production node</td><td>Not started</td><td>Mainnet (critical path)</td></tr>
+    </tbody>
+  </table>
+
+  <p>These gaps are documented here because informed participants make better decisions than surprised ones. Every item on this list has a clear implementation path and a defined place in the roadmap. None requires fundamental redesign. The Python reference node proves the protocol logic is correct. The build sequence exists to add production-grade features in a logical order without compromising what already works.</p>
+
+  <div class="section-rule"></div>
+
+  <!-- §11 Privacy Architecture -->
+  <div id="privacy" class="chapter">
+    <div class="chapter-num">XI</div>
+    <span class="chapter-tag">§11 — Privacy Architecture</span>
+    <h2>Privacy Architecture</h2>
+  </div>
+
+  <p class="lead">No existing decentralized compute network has a production privacy tier. Over 70% of enterprise AI workloads will involve sensitive data by 2026. Obelyth addresses this with a two-tier privacy architecture available at launch.</p>
+
+  <h3>Why Privacy Matters for Decentralized Inference</h3>
+
+  <p>In Obelyth's standard inference model, developers submit jobs to GPU miners who execute them. The assigned miner sees the prompt during execution. For the majority of AI workloads — open source models, public data, content generation, coding assistance — this presents no privacy concern. It is equivalent to the trust model of any cloud GPU provider.</p>
+
+  <p>For enterprise workloads involving sensitive data — medical records, legal documents, financial data, proprietary business information — sending raw prompts to anonymous GPU operators is unacceptable. Banking, healthcare, legal, and government customers cannot participate in a network without a credible privacy answer. The confidential computing market was $5.59 billion in 2025, growing at 16.29% annually, driven specifically by this demand.</p>
+
+  <h3>Two-Tier Architecture</h3>
+
+  <table class="spec-table">
+    <thead><tr><th>Tier</th><th>Mechanism</th><th>Available</th><th>Overhead</th><th>Premium</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><strong>Standard</strong></td>
+        <td>TLS transport encryption + ECDH per-job key exchange + sandboxed miner execution with memory wipe after completion. Miner sees prompt during execution only, in an isolated container destroyed afterward.</td>
+        <td>Mainnet launch</td>
+        <td>&lt;1%</td>
+        <td>None</td>
+      </tr>
+      <tr>
+        <td><strong>ZK Verified</strong></td>
+        <td>Groth16 ZK proof of inference via EZKL. Cryptographic proof that a specific model ran a specific input and produced a specific output. Fraud mathematically impossible, not just economically discouraged.</td>
+        <td>Mainnet launch (models under 1B parameters)</td>
+        <td>10–50x for small models</td>
+        <td>TBD</td>
+      </tr>
+      <tr>
+        <td><strong>Private (TEE)</strong></td>
+        <td>AMD SEV or NVIDIA H100 Confidential Computing. Miner OS cannot read job memory during execution. Remote attestation registered on-chain proves enclave integrity. Even the miner cannot access the prompt.</td>
+        <td>Month 6–12 post-mainnet</td>
+        <td>&lt;5%</td>
+        <td>15–20%</td>
+      </tr>
+      <tr>
+        <td><strong>ZK Large Models</strong></td>
+        <td>ZK proofs for 7B+ parameter models. Dependent on EZKL and Risc Zero overhead reduction. Full cryptographic trustlessness for all model sizes.</td>
+        <td>Month 18–36 (technology dependent)</td>
+        <td>Research</td>
+        <td>TBD</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>Standard Tier — What the Protection Actually Means</h3>
+
+  <p><strong>Transport encryption.</strong> TLS 1.3 between every party. Developer to node to miner to node to developer. No passive observer can read prompts off the wire.</p>
+
+  <p><strong>ECDH per-job key exchange.</strong> Developer generates a session keypair. Prompt is encrypted before submission. Only the assigned miner receives the session key. The node routes the encrypted job without seeing plaintext. Session key is destroyed after job completion.</p>
+
+  <p><strong>Sandboxed execution.</strong> Miner daemon runs inside a Docker container with no persistent storage, no network egress except back to the node, and no access to the host filesystem. Memory is wiped after each job. The container is destroyed. Audit logs contain only job IDs, timestamps, and cryptographic hashes — never plaintext.</p>
+
+  <p><strong>Blind job routing.</strong> Miners never know who the developer is. Developer address is hashed before inclusion in the job specification. The miner sees a job ID, model name, and encrypted prompt — not the developer's identity.</p>
+
+  <p><strong>Economic disincentives.</strong> Miners stake OBY to participate. A miner who leaks developer data and is caught loses 50% of stake plus a permanent network ban. With significant stake requirements, data leakage is economically irrational.</p>
+
+  <p><strong>Honest limitation.</strong> The assigned miner still sees the prompt in plaintext during execution. This is the same trust model as AWS, Google Cloud, and Azure — employees theoretically have access to data in use. It is appropriate for workloads where developers accept cloud-equivalent trust. It is not appropriate for workloads that require cryptographic privacy. For those, the TEE tier is the answer.</p>
+
+  <h3>Private Tier — TEE Attestation</h3>
+
+  <p>Trusted Execution Environments create hardware-isolated enclaves where even the host operating system cannot read memory contents. Two hardware options are supported:</p>
+
+  <p><strong>AMD SEV-SNP</strong> (AMD EPYC CPUs) — encrypts virtual machine memory at the hardware level. Available on any server with a modern AMD EPYC processor plus any NVIDIA GPU. More accessible than H100-only approaches — significantly broader miner pool.</p>
+
+  <p><strong>NVIDIA H100 Confidential Computing</strong> — production-ready TEE for GPU workloads. Available on all major cloud providers. Performance overhead under 5% of native speed. The miner's GPU cannot access decrypted model inputs. Remote attestation is cryptographically verifiable.</p>
+
+  <p>Developers opt into the private tier with a single SDK parameter:</p>
+
+  <pre style="background:var(--cream);padding:1rem;font-family:'IBM Plex Mono',monospace;font-size:0.85rem;border-left:3px solid var(--teal);">
+# Standard inference — default
+pipe = ObelythClient(api_key="oby_...").pipeline(
+    "text-generation", model="meta-llama/Llama-3-8B"
+)
+
+# Private inference — TEE attested, one parameter change
+pipe = ObelythClient(api_key="oby_...").pipeline(
+    "text-generation", model="meta-llama/Llama-3-8B",
+    privacy=True
+)</pre>
+
+  <p>The SDK handles miner selection, attestation verification, and key exchange automatically. No developer knowledge of hardware security required.</p>
+
+  <h3>ZK Verification at Launch</h3>
+
+  <p>ZK proofs of inference via EZKL are available at mainnet launch for models under 1B parameters. EZKL generates a Groth16 proof that a specific model with specific weights processed a specific input and produced a specific output. The proof is verified on Base chain. This makes fraud mathematically impossible rather than economically discouraged — and eliminates the divergence tolerance problem entirely for supported model sizes.</p>
+
+  <p>For larger models (7B+), current ZK proof generation overhead runs at 100x-1000x the inference cost itself, making it too slow for production use today. As EZKL and Risc Zero reduce this overhead, larger model ZK verification will be added. This is on the roadmap at Month 18-36 and requires a DAO governance vote before deployment.</p>
+
+  <h3>Market Context</h3>
+
+  <p>60% of enterprises are evaluating TEE for production AI workloads in 2025. Cyber insurance providers are beginning to mandate TEE for sensitive workloads. The $5.59 billion confidential computing market is growing at 16.29% annually, expected to reach $16.09 billion by 2032. IBM Research is actively working on confidential inference via vLLM with H100 Confidential Computing. Red Hat's Office of the CTO is building cloud-native confidential AI infrastructure.</p>
+
+  <p>No existing decentralized compute network — Akash, Render, io.net, Gensyn — has a production privacy tier. This is Obelyth's most significant enterprise differentiator and a direct response to a documented market need.</p>
+
+  <div class="section-rule"></div>
+
+  <!-- §11 Legal -->
+  <div id="legal" class="chapter">
+    <div class="chapter-num">XII</div>
+    <span class="chapter-tag">§12 — Legal Notices</span>
     <h2>Important Disclosures</h2>
   </div>
 
@@ -890,7 +1138,7 @@ print(result.generated_text)</pre>
   <!-- §11 Testnet & Validator Decentralization -->
   <div id="testnet" class="chapter">
     <div class="chapter-num">XI</div>
-    <span class="chapter-tag">§11 — Testnet & Decentralization</span>
+    <span class="chapter-tag">§12 — Testnet & Decentralization</span>
     <h2>From Founder-Controlled to Fully Decentralized</h2>
   </div>
 
@@ -914,7 +1162,7 @@ print(result.generated_text)</pre>
     </tbody>
   </table>
 
-  <p><strong>Testnet graduation criteria.</strong> Mainnet does not launch on a calendar date — it launches when all four conditions are simultaneously true: the Rust node has run as primary testnet node for 30+ consecutive stable days, the network has run 30 consecutive days without a critical bug, there are at least 10 independent validators across 3+ countries, and at least 5 real developers have successfully completed AI compute jobs through the SDK. All four must be met. The 60-day stability clock resets if any critical bug is found.</p>
+  <p><strong>Testnet graduation criteria.</strong> Mainnet does not launch on a calendar date — it launches when all four conditions are simultaneously true: the Rust node has run as primary testnet node for 60+ consecutive stable days, the network has run 60 consecutive days without a critical bug, there are at least 10 independent validators across 3+ countries, and at least 5 real developers have successfully completed AI compute jobs through the SDK. All four must be met. The 60-day stability clock resets if any critical bug is found.</p>
 
   <div class="section-rule"></div>
 

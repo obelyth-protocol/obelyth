@@ -26,6 +26,8 @@ from core.structures    import Transaction, ConsensusType
 from core.crypto        import generate_keypair, PrivateKey, VestingSchedule
 from network.p2p        import NetworkNode
 from wallet.wallet      import Wallet
+from tokenomics.engine  import TokenomicsEngine
+from compute.api        import ComputeAPI
 
 logging.basicConfig(
     level   = logging.INFO,
@@ -51,17 +53,24 @@ class RPCHandler(BaseHTTPRequestHandler):
         log.debug(f"RPC: {fmt % args}")
 
     def do_GET(self):
+        path_only = self.path.split('?')[0]
+        query = self.path.split('?', 1)[1] if '?' in self.path else ''
         routes = {
-            '/status'   : self._status,
-            '/peers'    : self._peers,
-            '/mempool'  : self._mempool,
-            '/vesting'  : self._vesting,
-            '/balance'  : self._balance,
+            '/status'           : self._status,
+            '/peers'            : self._peers,
+            '/mempool'          : self._mempool,
+            '/vesting'          : self._vesting,
+            '/balance'          : self._balance,
+            '/compute/nextjob'  : lambda: self._compute_nextjob(query),
         }
-        handler = routes.get(self.path.split('?')[0])
+        handler = routes.get(path_only)
         if handler:
             data = handler()
-            self._json(200, data)
+            if isinstance(data, tuple):
+                code, body = data
+                self._json(code, body)
+            else:
+                self._json(200, data)
         else:
             self._json(404, {'error': 'Not found'})
 
@@ -69,21 +78,34 @@ class RPCHandler(BaseHTTPRequestHandler):
         length = int(self.headers.get('Content-Length', 0))
         body   = self.rfile.read(length)
         try:
-            req = json.loads(body)
+            req = json.loads(body) if body else {}
         except Exception:
             self._json(400, {'error': 'Invalid JSON'})
             return
 
         routes = {
-            '/sendtx'       : self._send_tx,
-            '/mineblock'    : self._mine_block,
-            '/addpeer'      : self._add_peer,
-            '/getblock'     : self._get_block,
+            '/sendtx'                    : self._send_tx,
+            '/mineblock'                 : self._mine_block,
+            '/addpeer'                   : self._add_peer,
+            '/getblock'                  : self._get_block,
+            # ── Compute routes ──
+            '/compute/quote'             : self._compute_quote,
+            '/compute/submit'            : self._compute_submit,
+            '/compute/job'               : self._compute_job,
+            '/compute/infer'             : self._compute_infer,
+            '/compute/register'          : self._compute_register,
+            '/compute/heartbeat'         : self._compute_heartbeat,
+            '/compute/result'            : self._compute_result,
+            '/compute/challenge_resolve' : self._compute_challenge_resolve,
         }
         handler = routes.get(self.path)
         if handler:
             data = handler(req)
-            self._json(200, data)
+            if isinstance(data, tuple):
+                code, body = data
+                self._json(code, body)
+            else:
+                self._json(200, data)
         else:
             self._json(404, {'error': 'Not found'})
 
@@ -164,6 +186,35 @@ class RPCHandler(BaseHTTPRequestHandler):
             return {'error': 'Block not found'}
         return block.to_dict()
 
+    # ── Compute routes ────────────────────────────────────────────────────────
+
+    def _compute_quote(self, req):
+        return self.node.compute_api.quote(req)
+
+    def _compute_submit(self, req):
+        return self.node.compute_api.submit(req)
+
+    def _compute_job(self, req):
+        return self.node.compute_api.job_status(req)
+
+    def _compute_infer(self, req):
+        return self.node.compute_api.infer(req)
+
+    def _compute_register(self, req):
+        return self.node.compute_api.register_miner(req)
+
+    def _compute_heartbeat(self, req):
+        return self.node.compute_api.heartbeat(req)
+
+    def _compute_nextjob(self, query: str):
+        return self.node.compute_api.next_job(query)
+
+    def _compute_result(self, req):
+        return self.node.compute_api.submit_result(req)
+
+    def _compute_challenge_resolve(self, req):
+        return self.node.compute_api.resolve_challenge(req)
+
 
 # ── Full Node ──────────────────────────────────────────────────────────────────
 
@@ -211,6 +262,48 @@ class FullNode:
 
         # ── Blockchain ──
         self.chain = Blockchain(founder_address=founder_addr, genesis=True)
+
+        # ── Tokenomics + Compute API ──
+        # The engine takes providers so verification can use real chain state
+        # for deterministic challenge/assignment decisions. We pass closures
+        # over the chain so the engine sees fresh values on each call.
+        def _block_height_provider() -> int:
+            return self.chain.dag.height()
+
+        def _block_hash_provider() -> bytes:
+            tips = self.chain.dag.tips()
+            if not tips:
+                return b'\x00' * 32
+            # Canonical: highest-height tip; tie-break on lexically smallest hash
+            tips.sort(key=lambda b: (-b.header.height, b.hash))
+            tip = tips[0]
+            try:
+                return bytes.fromhex(tip.hash)
+            except (ValueError, AttributeError):
+                import hashlib as _h
+                return _h.sha3_256(str(tip.hash).encode()).digest()
+
+        self.tokenomics = TokenomicsEngine(
+            creator_address       = founder_addr,
+            dao_address           = founder_addr,    # placeholder until DAO multisig
+            block_height_provider = _block_height_provider,
+            block_hash_provider   = _block_hash_provider,
+        )
+
+        # Optional persistence — load on start if a snapshot exists, save on
+        # shutdown. Accounts registry is left optional for testnet/dev.
+        self.tokenomics_state_path = self.data_dir / 'tokenomics_state.json'
+        if self.tokenomics_state_path.exists():
+            try:
+                self.tokenomics.load(str(self.tokenomics_state_path))
+            except Exception as e:
+                log.warning(f"Could not load tokenomics state: {e}")
+
+        self.accounts_registry = None   # Phase 2.5: wire accounts/registry here
+        self.compute_api = ComputeAPI(
+            engine            = self.tokenomics,
+            accounts_registry = self.accounts_registry,
+        )
 
         # ── Network ──
         self.network = NetworkNode(
@@ -318,6 +411,10 @@ class FullNode:
                 )
         except KeyboardInterrupt:
             log.info("Shutting down...")
+            try:
+                self.tokenomics.save(str(self.tokenomics_state_path))
+            except Exception as e:
+                log.warning(f"Could not save tokenomics state: {e}")
             self.network.stop()
 
 

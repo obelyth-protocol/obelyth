@@ -375,6 +375,7 @@ class VerificationEngine:
         on_slash : Optional[Callable] = None,
         on_refund: Optional[Callable] = None,
         on_ban   : Optional[Callable] = None,
+        on_pass  : Optional[Callable] = None,
         block_hash_provider: Optional[Callable] = None,
     ):
         """
@@ -385,6 +386,10 @@ class VerificationEngine:
               Called when a developer is owed a refund from slashed stake.
           on_ban(miner_addr, until_block)
               Called on 2nd+ offence when miner is time-locked.
+          on_pass(miner_addr, job_id, method)
+              Called when a challenged job resolves PASSED (matching rerun)
+              OR when a job is accepted optimistically OR via ZK proof.
+              method is 'optimistic' | 'zk' | 'challenged'.
 
         block_hash_provider() returns the current chain-tip block hash as bytes.
         Required for deterministic challenge selection.
@@ -392,6 +397,7 @@ class VerificationEngine:
         self.on_slash  = on_slash
         self.on_refund = on_refund
         self.on_ban    = on_ban
+        self.on_pass   = on_pass
         self._get_block_hash = block_hash_provider or (lambda: b'\x00' * 32)
 
         self._challenges : dict[str, Challenge] = {}
@@ -585,6 +591,8 @@ class VerificationEngine:
                     method  = 'challenged',
                     details = 'Challenge expired without dispute',
                 )
+                if self.on_pass:
+                    self.on_pass(c.miner_addr, c.job_id, 'challenged')
                 return ChallengeStatus.EXPIRED
 
             if rerun_hash == c.result_hash:
@@ -596,6 +604,8 @@ class VerificationEngine:
                     details = 'Challenge passed — miner honest',
                 )
                 log.info(f'Challenge {challenge_id[:12]}: PASSED')
+                if self.on_pass:
+                    self.on_pass(c.miner_addr, c.job_id, 'challenged')
                 return ChallengeStatus.PASSED
 
             # ── Fault path: escalating slash ──────────────────────────────────
@@ -674,6 +684,7 @@ class VerificationEngine:
         while True:
             time.sleep(60)
             with self._lock:
+                expired_passes = []
                 for c in list(self._challenges.values()):
                     if c.status == ChallengeStatus.PENDING and c.is_expired():
                         c.status = ChallengeStatus.EXPIRED
@@ -683,6 +694,12 @@ class VerificationEngine:
                             method  = 'challenged',
                             details = 'Challenge window expired — accepted',
                         )
+                        expired_passes.append((c.miner_addr, c.job_id))
+            # Fire callbacks outside the lock to avoid reentrancy if the
+            # caller's on_pass also acquires the engine's lock
+            if self.on_pass:
+                for miner_addr, job_id in expired_passes:
+                    self.on_pass(miner_addr, job_id, 'challenged')
 
     def get_result(self, job_id: str) -> Optional[VerificationResult]:
         return self._results.get(job_id)
