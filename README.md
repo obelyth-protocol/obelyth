@@ -311,9 +311,9 @@ MIT — see [LICENSE](LICENSE).
 | | |
 |---|---|
 | Website | [obelyth.io](https://obelyth.io) |
-| Docs | [docs.obelyth.io](https://docs.obelyth.io) |
-| Explorer | [explorer.obelyth.io](https://explorer.obelyth.io) |
-| Whitepaper | [obelyth.io/whitepaper](https://obelyth.io/whitepaper) |
+| Docs | Coming Soon |
+| Explorer | Coming Soon |
+| Whitepaper | [obelyth.io](https://obelyth.io) |
 | Discord | [discord.gg/xppWjgYnT](https://discord.gg/xppWjgYnT) |
 | Twitter/X | [@Obelyth_Chain](https://x.com/Obelyth_Chain) |
 | Security | [security@obelyth.io](mailto:security@obelyth.io) |
