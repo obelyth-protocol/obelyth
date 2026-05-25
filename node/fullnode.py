@@ -56,12 +56,13 @@ class RPCHandler(BaseHTTPRequestHandler):
         path_only = self.path.split('?')[0]
         query = self.path.split('?', 1)[1] if '?' in self.path else ''
         routes = {
-            '/status'           : self._status,
-            '/peers'            : self._peers,
-            '/mempool'          : self._mempool,
-            '/vesting'          : self._vesting,
-            '/balance'          : self._balance,
-            '/compute/nextjob'  : lambda: self._compute_nextjob(query),
+            '/status'                    : self._status,
+            '/peers'                     : self._peers,
+            '/mempool'                   : self._mempool,
+            '/vesting'                   : self._vesting,
+            '/balance'                   : self._balance,
+            '/compute/nextjob'           : lambda: self._compute_nextjob(query),
+            '/compute/pending_challenges': lambda: self._compute_pending_challenges(query),
         }
         handler = routes.get(path_only)
         if handler:
@@ -209,6 +210,9 @@ class RPCHandler(BaseHTTPRequestHandler):
     def _compute_nextjob(self, query: str):
         return self.node.compute_api.next_job(query)
 
+    def _compute_pending_challenges(self, query: str):
+        return self.node.compute_api.pending_challenges(query)
+
     def _compute_result(self, req):
         return self.node.compute_api.submit_result(req)
 
@@ -221,13 +225,14 @@ class RPCHandler(BaseHTTPRequestHandler):
 class FullNode:
     def __init__(
         self,
-        p2p_port     : int  = 8333,
-        rpc_port     : int  = 8334,
-        seed_nodes   : list = None,
-        mine         : bool = False,
-        mine_interval: int  = 30,      # seconds between auto-mine attempts
-        data_dir     : str  = './obelyth_data',
-        founder_key  : str  = None,    # path to founder WIF key file
+        p2p_port         : int  = 8333,
+        rpc_port         : int  = 8334,
+        seed_nodes       : list = None,
+        mine             : bool = False,
+        mine_interval    : int  = 30,      # seconds between auto-mine attempts
+        data_dir         : str  = './obelyth_data',
+        founder_key      : str  = None,    # path to founder WIF key file
+        accounts_enabled : bool = False,   # require API key auth on /compute/submit
     ):
         self.p2p_port      = p2p_port
         self.rpc_port      = rpc_port
@@ -299,7 +304,19 @@ class FullNode:
             except Exception as e:
                 log.warning(f"Could not load tokenomics state: {e}")
 
-        self.accounts_registry = None   # Phase 2.5: wire accounts/registry here
+        self.accounts_registry = None
+        if accounts_enabled:
+            from accounts.registry import AccountRegistry
+            self.accounts_registry = AccountRegistry(
+                db_path=str(self.data_dir / 'accounts.db'),
+            )
+            log.info(f"Accounts registry enabled at {self.data_dir / 'accounts.db'}")
+        else:
+            log.warning(
+                "Accounts registry DISABLED — /compute/submit accepts raw "
+                "developer_addr (testnet/dev mode). Pass accounts_enabled=True "
+                "in production."
+            )
         self.compute_api = ComputeAPI(
             engine            = self.tokenomics,
             accounts_registry = self.accounts_registry,
@@ -363,8 +380,39 @@ class FullNode:
             threading.Thread(target=self._mine_loop, daemon=True, name='miner').start()
             log.info(f"Auto-miner started (interval={self.mine_interval}s)")
 
+        # Refund sweep loop — periodically converts faulted job refunds from OBY
+        # to dev's stablecoin via AMM and credits their account balance.
+        # Runs every REFUND_SWEEP_INTERVAL_S regardless of accounts_enabled (the
+        # engine handles the no-registry path gracefully).
+        threading.Thread(target=self._refund_sweep_loop, daemon=True,
+                         name='refund-sweep').start()
+        log.info(
+            f"Refund sweep started (interval={self.REFUND_SWEEP_INTERVAL_S}s)"
+        )
+
         log.info("=== Obelyth node running ===")
         self._print_status()
+
+    REFUND_SWEEP_INTERVAL_S = 60.0   # how often to sweep faulted-job refunds
+
+    def _refund_sweep_loop(self):
+        # Let the rest of the node settle before the first sweep
+        time.sleep(10)
+        while True:
+            try:
+                summary = self.tokenomics.process_pending_refunds(
+                    accounts_registry=self.accounts_registry,
+                )
+                if summary['settled'] > 0:
+                    log.info(
+                        f"Refund sweep: settled={summary['settled']} "
+                        f"oby={summary['total_oby_swept']:.4f} "
+                        f"usd_credited=${summary['total_usd_credited']:.4f} "
+                        f"errors={summary['errors']}"
+                    )
+            except Exception as e:
+                log.error(f"Refund sweep error: {e}")
+            time.sleep(self.REFUND_SWEEP_INTERVAL_S)
 
     def _mine_loop(self):
         time.sleep(5)  # let network settle
@@ -429,6 +477,13 @@ def main():
     parser.add_argument('--mine-interval',type=int, default=30,            help='Seconds between mine attempts')
     parser.add_argument('--data-dir',     type=str, default='./obelyth_data',help='Data directory')
     parser.add_argument('--founder-key',  type=str, default=None,          help='Path to founder WIF key file')
+    parser.add_argument('--accounts-enabled', action='store_true',
+                        help='Require valid API key on /compute/submit (production mode)')
+    parser.add_argument('--challenger', action='store_true',
+                        help='Run a challenger daemon in-process (polls own RPC '
+                             'for pending challenges, reruns work, posts verdicts)')
+    parser.add_argument('--challenger-address', type=str, default=None,
+                        help='Address to advertise as challenger (defaults to node wallet)')
     args = parser.parse_args()
 
     seeds = []
@@ -437,14 +492,27 @@ def main():
         seeds.append((host, int(port)))
 
     node = FullNode(
-        p2p_port      = args.port,
-        rpc_port      = args.rpc_port,
-        seed_nodes    = seeds,
-        mine          = args.mine,
-        mine_interval = args.mine_interval,
-        data_dir      = args.data_dir,
-        founder_key   = args.founder_key,
+        p2p_port         = args.port,
+        rpc_port         = args.rpc_port,
+        seed_nodes       = seeds,
+        mine             = args.mine,
+        mine_interval    = args.mine_interval,
+        data_dir         = args.data_dir,
+        founder_key      = args.founder_key,
+        accounts_enabled = args.accounts_enabled,
     )
+
+    # Optional: start in-process challenger daemon
+    if args.challenger:
+        from compute.challenger import ChallengerDaemon
+        challenger_addr = args.challenger_address or node.wallet.primary_address
+        challenger = ChallengerDaemon(
+            node_url        = f'http://127.0.0.1:{args.rpc_port}',
+            challenger_addr = challenger_addr,
+        )
+        challenger.start()
+        log.info(f"Challenger daemon attached: addr={challenger_addr[:16]}")
+
     node.run_forever()
 
 

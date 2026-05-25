@@ -133,30 +133,45 @@ class JobRunner:
         inputs   : list,
         task     : str,
         params   : dict,
+        seed     : int = 0,
     ) -> dict:
         """
         Run inference. In production: calls local model server
         (vLLM, TGI, or ollama) via localhost API.
         Returns result dict with output text + verification hash.
+
+        The `seed` argument is propagated to the inference framework so
+        the rerun on a challenger node produces the same output hash.
+        Without seed pinning, GPU driver/kernel/quantization variance
+        causes legitimate runs to look like faults.
         """
-        log.info(f"Running inference: {task} model={model_id} inputs={len(inputs)}")
+        log.info(
+            f"Running inference: {task} model={model_id} "
+            f"inputs={len(inputs)} seed={seed}"
+        )
         start = time.time()
 
-        # Production: call vLLM/TGI endpoint
-        # result = self._call_local_server(model_id, inputs, task, params)
+        # Production: call vLLM/TGI endpoint with seed in SamplingParams
+        # result = self._call_local_server(model_id, inputs, task, params, seed)
 
-        # Stub for development (no GPU required to test the network)
+        # Stub for development. Note: we incorporate the seed into the stub
+        # output so the result_hash is deterministic per (inputs, seed). This
+        # mirrors what real vLLM produces when seed is pinned.
         outputs = []
         for inp in inputs:
             stub_text = (
                 f"[Obelyth inference stub] "
-                f"Model '{model_id}' processed: '{str(inp)[:60]}'"
+                f"Model '{model_id}' (seed={seed}) processed: '{str(inp)[:60]}'"
             )
             outputs.append({'generated_text': stub_text, 'score': 0.99})
 
         elapsed = time.time() - start
-        result_hash = hashlib.sha3_256(
-            json.dumps(outputs, sort_keys=True).encode()
+        # Canonical JSON: sorted keys, compact separators — same convention
+        # the compute/api.py uses for input_payload_hash derivation, so the
+        # challenger gets a byte-identical hash on rerun.
+        result_hash = hashlib.sha256(
+            json.dumps(outputs, sort_keys=True,
+                       separators=(',', ':')).encode()
         ).hexdigest()
 
         return {
@@ -164,6 +179,7 @@ class JobRunner:
             'latency_ms'  : round(elapsed * 1000, 1),
             'result_hash' : result_hash,
             'model_id'    : model_id,
+            'seed'        : seed,
         }
 
     def run_fine_tuning(self, config: dict) -> dict:
@@ -298,10 +314,115 @@ class MinerDaemon:
 
         log.info(f"Miner stopped. Total earned: {self._earnings:.4f} OBY")
 
+    # ── Determinism enforcement ──────────────────────────────────────────────
+    # The job envelope carries pinned model_hash, container_digest, and seed.
+    # The miner must respect these so the challenger's rerun is reproducible.
+    # Phase 3.2 validates the envelope format; Phase 5 will add real container
+    # pulling and model-weight verification.
+
+    _HEX64 = frozenset('0123456789abcdef')
+
+    @staticmethod
+    def _is_sha256_hex(s: str) -> bool:
+        return (isinstance(s, str) and len(s) == 64
+                and all(c in MinerDaemon._HEX64 for c in s.lower()))
+
+    @staticmethod
+    def _is_oci_digest(s: str) -> bool:
+        return (isinstance(s, str) and s.startswith('sha256:')
+                and MinerDaemon._is_sha256_hex(s[len('sha256:'):]))
+
+    def _validate_envelope(self, job: dict) -> tuple[bool, str]:
+        """
+        Validate the determinism envelope before executing.
+        Returns (ok, error_message). On failure, miner rejects the job
+        and reports it to the node — does NOT slash itself, just signals
+        the job was malformed and can't be executed reproducibly.
+        """
+        model_hash = job.get('model_hash', '')
+        if not self._is_sha256_hex(model_hash):
+            return False, f'malformed model_hash: {model_hash!r}'
+        container_digest = job.get('container_digest', '')
+        if not self._is_oci_digest(container_digest):
+            return False, f'malformed container_digest: {container_digest!r}'
+        seed = job.get('seed')
+        if not isinstance(seed, int) or seed < 0 or seed >= 2**64:
+            return False, f'seed must be uint64, got {seed!r}'
+        return True, ''
+
+    def _verify_model_hash(self, model_id: str, expected_hash: str) -> bool:
+        """
+        Phase 3.2: stub. Real impl in Phase 5 will:
+          - check local cache for model_id
+          - if not present, download from HuggingFace
+          - compute SHA-256 of the weight tensors in canonical order
+          - compare to expected_hash
+        For now we log what we *would* verify and trust the envelope.
+        """
+        log.info(
+            f"Determinism: would verify model {model_id} matches "
+            f"hash {expected_hash[:12]}.. (Phase 5 real verification)"
+        )
+        return True
+
+    def _pull_container(self, container_digest: str) -> bool:
+        """
+        Phase 3.2: stub. Real impl in Phase 5 will:
+          - call `docker pull <registry>/obelyth-vllm@<digest>` or podman
+          - confirm pulled image's manifest hash matches container_digest
+          - if not, refuse to run
+        For now we log what we *would* pull.
+        """
+        log.info(
+            f"Determinism: would pull container {container_digest[:24]}.. "
+            f"(Phase 5 real OCI pull)"
+        )
+        return True
+
     def _execute_job(self, job: dict):
         job_id   = job['job_id']
         job_type = job.get('job_type', 'inference')
         log.info(f"Job received: {job_id} type={job_type}")
+
+        # ── Determinism envelope validation ──
+        # Reject malformed envelopes BEFORE attempting any execution.
+        # The verification engine already validates these at submission,
+        # so this is defence-in-depth + protects against malicious nodes
+        # that might forward a corrupted job to the miner.
+        ok, err = self._validate_envelope(job)
+        if not ok:
+            log.error(f"Job {job_id} rejected: {err}")
+            self._post('/compute/result', {
+                'job_id'    : job_id,
+                'miner_addr': self.address,
+                'status'    : 'failed',
+                'error'     : f'envelope validation: {err}',
+            })
+            return
+
+        model_hash       = job['model_hash']
+        container_digest = job['container_digest']
+        seed             = job['seed']
+
+        # Phase 3.2: stub model + container verification (Phase 5 makes real)
+        if not self._verify_model_hash(job.get('model_id', ''), model_hash):
+            log.error(f"Job {job_id} rejected: model hash mismatch")
+            self._post('/compute/result', {
+                'job_id'    : job_id,
+                'miner_addr': self.address,
+                'status'    : 'failed',
+                'error'     : 'model hash mismatch',
+            })
+            return
+        if not self._pull_container(container_digest):
+            log.error(f"Job {job_id} rejected: container digest mismatch")
+            self._post('/compute/result', {
+                'job_id'    : job_id,
+                'miner_addr': self.address,
+                'status'    : 'failed',
+                'error'     : 'container digest mismatch',
+            })
+            return
 
         try:
             if job_type in ('inference', 'embedding'):
@@ -310,6 +431,7 @@ class MinerDaemon:
                     inputs   = job.get('inputs', []),
                     task     = job.get('task', 'text-generation'),
                     params   = job.get('params', {}),
+                    seed     = seed,
                 )
             elif job_type == 'fine_tuning':
                 result = self.runner.run_fine_tuning(job.get('config', {}))

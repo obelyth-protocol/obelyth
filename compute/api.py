@@ -178,9 +178,17 @@ class ComputeAPI:
         # (testnet/dev mode) accept the developer_addr from the body directly.
         if self.accounts is not None and account is None:
             return _err(401, 'invalid or missing api_key')
-        developer_addr = (
-            account.account_id if account else body.get('developer_addr', '')
-        )
+        # If we resolved an account, enforce the developer_addr from it
+        # (the body cannot spoof a different one) and check balance.
+        if account is not None:
+            if not account.is_active:
+                return _err(403, f'account status: {account.status.value}')
+            if not account.balance_sufficient:
+                return _err(402,
+                    f'insufficient balance: ${account.balance_usd:.4f}')
+            developer_addr = account.account_id
+        else:
+            developer_addr = body.get('developer_addr', '')
         if not developer_addr:
             return _err(400, 'missing developer_addr (or api_key)')
 
@@ -226,6 +234,9 @@ class ComputeAPI:
                 input_schema_hash  = body.get('input_schema_hash')  or derived['input_schema_hash'],
                 gpu_count          = int(body.get('gpu_count', 1)),
                 duration_hr        = float(body.get('duration_hr', 1.0)),
+                inputs             = body.get('inputs') or [],
+                task               = body.get('task', 'text-generation'),
+                params             = body.get('params') or {},
             )
         except JobValidationError as e:
             return _err(400, f'determinism envelope invalid: {e}')
@@ -349,6 +360,27 @@ class ComputeAPI:
             self.engine.record_uptime(addr, uptime_s / 3600.0)
         return _ok({'acknowledged': True})
 
+    @staticmethod
+    def _job_payload_for_miner(j) -> dict:
+        """The job payload that gets sent to a miner via /compute/nextjob.
+        Includes inputs/task/params so the miner can actually run the work,
+        plus the full determinism envelope so it can validate before running."""
+        return {
+            'job_id'            : j.job_id,
+            'job_type'          : j.job_type,
+            'model_id'          : j.model_id,
+            'gpu_hours'         : j.gpu_hours,
+            'model_hash'        : j.model_hash,
+            'container_digest'  : j.container_digest,
+            'seed'              : j.seed,
+            'input_payload_hash': j.input_payload_hash,
+            'input_schema_hash' : j.input_schema_hash,
+            'inputs'            : j.inputs,
+            'task'              : j.task,
+            'params'            : j.params,
+            'oby_reward'        : j.oby_to_miner,
+        }
+
     def next_job(self, query_string: str) -> tuple[int, dict]:
         """GET /compute/nextjob?address=...&job_type=... — miner pulls work.
 
@@ -366,36 +398,14 @@ class ComputeAPI:
         with self.engine._lock:
             for j in self.engine._jobs.values():
                 if j.status == 'assigned' and j.miner_addr == miner_addr:
-                    return _ok({
-                        'job_id'           : j.job_id,
-                        'job_type'         : j.job_type,
-                        'model_id'         : j.model_id,
-                        'gpu_hours'        : j.gpu_hours,
-                        'model_hash'       : j.model_hash,
-                        'container_digest' : j.container_digest,
-                        'seed'             : j.seed,
-                        'input_payload_hash': j.input_payload_hash,
-                        'input_schema_hash' : j.input_schema_hash,
-                        'oby_reward'       : j.oby_to_miner,
-                    })
+                    return _ok(self._job_payload_for_miner(j))
 
         # Pass 2: try assigning a pending job (stake-weighted draw)
         for job_id in self.engine.pending_jobs_for_assignment():
             assigned_to = self.engine.assign_job(job_id)
             if assigned_to == miner_addr:
                 job = self.engine.get_job(job_id)
-                return _ok({
-                    'job_id'           : job.job_id,
-                    'job_type'         : job.job_type,
-                    'model_id'         : job.model_id,
-                    'gpu_hours'        : job.gpu_hours,
-                    'model_hash'       : job.model_hash,
-                    'container_digest' : job.container_digest,
-                    'seed'             : job.seed,
-                    'input_payload_hash': job.input_payload_hash,
-                    'input_schema_hash' : job.input_schema_hash,
-                    'oby_reward'       : job.oby_to_miner,
-                })
+                return _ok(self._job_payload_for_miner(job))
         # Nothing available right now — 200 with empty body so miner polls again
         return _ok({})
 
@@ -446,6 +456,45 @@ class ComputeAPI:
         })
 
     # ── Challenger endpoint ────────────────────────────────────────────────────
+
+    def pending_challenges(self, query_string: str) -> tuple[int, dict]:
+        """GET /compute/pending_challenges?challenger_addr=... — returns the
+        list of challenges currently awaiting a verifier rerun.
+
+        Includes the full work payload (model_id, inputs, task, params) so
+        the challenger can reproduce the work locally. The pinned envelope
+        (model_hash, container_digest, inference_seed) lets the challenger
+        validate it's running the same code as the miner did.
+
+        Anyone can poll; the engine's resolve_challenge enforces the verdict
+        (the rerun_hash is what matters, not who submitted it).
+        """
+        challenges = self.engine.verification.pending_challenges()
+        out = []
+        for c in challenges:
+            job = self.engine.get_job(c.job_id)
+            out.append({
+                'challenge_id'      : c.challenge_id,
+                'job_id'            : c.job_id,
+                'miner_addr'        : c.miner_addr,
+                'result_hash'       : c.result_hash,
+                # Determinism envelope — what the rerun MUST use
+                'model_hash'        : c.model_hash,
+                'container_digest'  : c.container_digest,
+                'inference_seed'    : c.inference_seed,
+                # Work payload — what to actually run
+                'job_type'          : job.job_type if job else 'inference',
+                'model_id'          : job.model_id if job else '',
+                'inputs'            : job.inputs if job else [],
+                'task'              : job.task if job else 'text-generation',
+                'params'            : job.params if job else {},
+                'created_at'        : c.created_at,
+                'expires_at'        : c.expires_at,
+            })
+        return _ok({
+            'challenges': out,
+            'count'     : len(out),
+        })
 
     def resolve_challenge(self, body: dict) -> tuple[int, dict]:
         """POST /compute/challenge_resolve — challenger reports rerun verdict."""

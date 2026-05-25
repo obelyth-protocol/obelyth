@@ -439,6 +439,43 @@ class AccountRegistry:
 
     # ── Balance Management ────────────────────────────────────────────────────
 
+    def credit_refund(
+        self,
+        account_id  : str,
+        amount_usd  : float,
+        job_id      : str,
+    ) -> float:
+        """
+        Credit a refund from a faulted compute job.
+
+        Distinct from credit_balance in that:
+          - no deposit_id is required (refunds don't come from on-chain deposits)
+          - increments total_deposited so the dev's lifetime accounting is
+            internally consistent (their balance net of spent jobs reconciles)
+          - the audit trail lives on the ComputeJob.refund_oby field rather
+            than the deposits table
+
+        Returns the new balance.
+        """
+        with self._lock:
+            with sqlite3.connect(self.db_path) as conn:
+                conn.execute('''
+                    UPDATE accounts
+                    SET balance_usd     = balance_usd + ?,
+                        total_deposited = total_deposited + ?
+                    WHERE account_id = ?
+                ''', (amount_usd, amount_usd, account_id))
+                row = conn.execute(
+                    'SELECT balance_usd FROM accounts WHERE account_id = ?',
+                    (account_id,)
+                ).fetchone()
+        new_bal = row[0] if row else 0.0
+        log.info(
+            f"Refund credited: {account_id[:8]} "
+            f"+${amount_usd:.4f} (job {job_id[:8]}) → ${new_bal:.4f}"
+        )
+        return new_bal
+
     def credit_balance(
         self,
         account_id  : str,

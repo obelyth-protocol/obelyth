@@ -458,8 +458,19 @@ class ComputeJob:
     seed               : int = 0
     input_payload_hash : str = ''
     input_schema_hash  : str = ''
+    # Raw inputs needed by the challenger to reproduce the work.
+    # Privacy note: standard tier exposes inputs to the assigned miner AND
+    # any challenger. Higher tiers (pipeline, TEE) don't expose to challengers
+    # via this field — they verify differently. Stored as JSON-serializable
+    # list/dict, default empty.
+    inputs             : list  = field(default_factory=list)
+    task               : str   = 'text-generation'
+    params             : dict  = field(default_factory=dict)
     # Refund accounting when this job's miner was faulted
     refund_oby         : float = 0.0
+    refund_settled     : bool  = False   # True once swept to dev's stablecoin balance
+    refund_stable_paid : float = 0.0     # actual stablecoin amount credited
+    refund_settled_at  : int   = 0
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -956,6 +967,9 @@ class TokenomicsEngine:
         gpu_count          : int   = 1,
         duration_hr        : float = 1.0,
         stable_paid        : float = None,
+        inputs             : list  = None,
+        task               : str   = 'text-generation',
+        params             : dict  = None,
     ) -> tuple['ComputeJob', FeeReceipt]:
         """
         Submit a job AND register it with the verification engine.
@@ -965,22 +979,19 @@ class TokenomicsEngine:
         through the AMM. If validation fails, no state changes are made
         and JobValidationError propagates to the caller (which should
         return 400 to the developer).
+
+        inputs/task/params are stored on the ComputeJob so the challenger
+        can reproduce the work. They are NOT part of the verification
+        engine's JobSpec (which only holds the hashes for envelope
+        validation).
         """
         from compute.verification import JobSpec, validate_job_submission
-        # Build the verification spec first so we can validate before
-        # touching the AMM. payment_oby is computed below from the receipt;
-        # use a temporary positive value to satisfy validation, then update.
-        # Actually: simpler to compute the payment in OBY-equivalent up front
-        # from the quote.
         import uuid
         job_id = str(uuid.uuid4())[:16]
 
         stable = stable_paid or self.quote_job(
             job_type, model_id, coin, gpu_count, duration_hr
         )['stable_cost']
-        # Pre-validate the determinism envelope. payment_oby is approximate
-        # at this stage (we compute the precise amount after process_job_fee)
-        # but it just needs to be > 0 for validate_job_submission to pass.
         approx_payment_oby = self._usd_to_oby(stable * FEE_TO_LIQUIDITY)
         spec = JobSpec(
             job_id             = job_id,
@@ -1018,6 +1029,9 @@ class TokenomicsEngine:
             seed               = seed,
             input_payload_hash = input_payload_hash,
             input_schema_hash  = input_schema_hash,
+            inputs             = inputs if inputs is not None else [],
+            task               = task,
+            params             = params if params is not None else {},
         )
         with self._lock:
             self._jobs[job_id]       = job
@@ -1129,6 +1143,106 @@ class TokenomicsEngine:
             offence_count = offence_count,
             current_block = current_block,
         )
+
+    # ── Refund settlement ─────────────────────────────────────────────────────
+
+    def process_pending_refunds(
+        self,
+        accounts_registry = None,
+    ) -> dict:
+        """
+        Sweep all faulted jobs with unsettled refunds. For each:
+          - convert the OBY refund to the developer's original stablecoin
+            via the AMM (sell_oby)
+          - credit the converted amount to the dev's account balance
+          - mark the job's refund_settled = True so it doesn't sweep twice
+
+        Returns a summary dict {settled, total_oby_swept, total_usd_credited,
+        skipped_no_account, errors}.
+
+        If accounts_registry is None we mark jobs settled with 0 USD credit
+        and log the would-have-credited amount — useful for dev/testnet modes
+        where the registry isn't wired.
+
+        Idempotent: running twice in a row does nothing on the second call.
+        """
+        from tokenomics.engine import Stablecoin
+        summary = {
+            'settled'            : 0,
+            'total_oby_swept'    : 0.0,
+            'total_usd_credited' : 0.0,
+            'skipped_no_account' : 0,
+            'errors'             : 0,
+        }
+
+        with self._lock:
+            # Snapshot the candidates so we don't iterate while mutating
+            candidates = [
+                j for j in self._jobs.values()
+                if j.refund_oby > 0
+                and not j.refund_settled
+                and j.status == 'faulted'
+            ]
+
+        for job in candidates:
+            try:
+                # Resolve the developer's stablecoin preference from the job
+                try:
+                    coin = Stablecoin(job.stablecoin)
+                except ValueError:
+                    log.warning(
+                        f"refund: unknown stablecoin {job.stablecoin!r} on "
+                        f"job {job.job_id}, defaulting to USDC"
+                    )
+                    coin = Stablecoin.USDC
+
+                # AMM swap OBY -> stablecoin
+                swap = self.sell_oby(
+                    oby_in=job.refund_oby, coin=coin,
+                    user_addr=job.developer_addr,
+                )
+                stable_out = swap['stable_out']
+                usd_out    = swap['usd_out']
+
+                # Credit dev's account balance (only if registry is wired)
+                if accounts_registry is not None:
+                    acct = accounts_registry.get_by_id(job.developer_addr)
+                    if acct is not None:
+                        accounts_registry.credit_refund(
+                            account_id=job.developer_addr,
+                            amount_usd=usd_out,
+                            job_id=job.job_id,
+                        )
+                        summary['total_usd_credited'] += usd_out
+                    else:
+                        summary['skipped_no_account'] += 1
+                        log.warning(
+                            f"refund: no account for {job.developer_addr[:12]}.. "
+                            f"on job {job.job_id} — sweep recorded but balance "
+                            f"NOT credited"
+                        )
+
+                # Mark settled atomically so a second sweep can't double-credit
+                with self._lock:
+                    job.refund_settled     = True
+                    job.refund_stable_paid = stable_out
+                    job.refund_settled_at  = int(time.time())
+
+                summary['settled']         += 1
+                summary['total_oby_swept'] += job.refund_oby
+
+                log.info(
+                    f"refund swept: job {job.job_id} | "
+                    f"{job.refund_oby:.4f} OBY -> {stable_out:.4f} {coin.value} "
+                    f"(${usd_out:.4f}) credited to {job.developer_addr[:12]}.."
+                )
+            except Exception as e:
+                summary['errors'] += 1
+                log.error(
+                    f"refund sweep failed for job {job.job_id}: {e}"
+                )
+
+        return summary
 
     # ── DAO ────────────────────────────────────────────────────────────────────
 
@@ -1384,7 +1498,10 @@ class TokenomicsEngine:
                     'oby_to_miner', 'miner_addr', 'status', 'created_at',
                     'completed_at', 'result_cid', 'result_hash',
                     'model_hash', 'container_digest', 'seed',
-                    'input_payload_hash', 'input_schema_hash', 'refund_oby',
+                    'input_payload_hash', 'input_schema_hash',
+                    'inputs', 'task', 'params',
+                    'refund_oby', 'refund_settled', 'refund_stable_paid',
+                    'refund_settled_at',
                 }
                 clean = {k: v for k, v in j_dict.items() if k in known_fields}
                 self._jobs[jid] = ComputeJob(**clean)
