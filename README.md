@@ -149,12 +149,12 @@ The 3% pre-mainnet community pool (630,000 OBY) rewards everyone who builds and 
 
 | Role | What you do | How to join |
 |---|---|---|
-| **Validator** | Run a validator node, sign blocks | [obelyth.io/validate](https://obelyth.io/validate) |
-| **GPU Miner** | Run AI compute jobs on your GPU | [obelyth.io/mine](https://obelyth.io/mine) |
-| **AI Developer** | Use the SDK, test models, give feedback | [obelyth.io/dev](https://obelyth.io/dev) |
+| **Validator** | Run a validator node, sign blocks | Coming Soon |
+| **GPU Miner** | Run AI compute jobs on your GPU | Coming Soon |
+| **AI Developer** | Use the SDK, test models, give feedback | Coming Soon |
 | **Code Contributor** | Improve the node, SDK, or tooling | Open a PR on this repo |
-| **Documentation** | Write tutorials, guides, translations | [docs.obelyth.io/contribute](https://docs.obelyth.io/contribute) |
-| **Data Scientist** | Build economic models and dashboards | [obelyth.io/community](https://obelyth.io/community) |
+| **Documentation** | Write tutorials, guides, translations | Coming Soon |
+| **Data Scientist** | Build economic models and dashboards | Coming Soon |
 | **Security Researcher** | Find and disclose vulnerabilities | [security@obelyth.io](mailto:security@obelyth.io) |
 | **Community** | Grow and support the community | [discord.gg/xppWjgYnT](https://discord.gg/xppWjgYnT) |
 
