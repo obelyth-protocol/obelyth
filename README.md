@@ -294,7 +294,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md). Every merged PR earns points in the pre-
 
 ## Grants
 
-Actively applying for ecosystem grants to fund legal structure, security review, and core engineering. If you represent a foundation interested in decentralized AI compute infrastructure: [grants@obelyth.io](mailto:grants@obelyth.io)
+Actively applying for ecosystem grants to fund legal structure, security review, and core engineering. If you represent a foundation interested in decentralized AI compute infrastructure: [hello@obelyth.io](mailto:hello@obelyth.io)
 
 Current targets: Filecoin/Protocol Labs ProPGF · Arbitrum Foundation · Base Builder · Uniswap Foundation · Ethereum Foundation ESP
 
