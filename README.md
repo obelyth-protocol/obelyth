@@ -61,6 +61,25 @@ result = pipe("Explain proof-of-useful-work in one sentence")[0]
 print(result.generated_text)
 ```
 
+### Tier selection: trust vs cost
+
+Two tiers are available for each job:
+
+```python
+# Standard tier (default) — one miner, optimistic verification.
+# Cheapest. Equivalent trust to AWS. ~56% below AWS on price.
+client = ObelythClient(api_key="oby_...")
+
+# Redundant tier — three miners run in parallel, majority consensus,
+# outlier slashed. 3x cost. Use when you need cryptographic proof the
+# result wasn't manipulated by a single provider.
+client_red = ObelythClient(api_key="oby_...", tier="redundant")
+
+# Or override per call:
+pipe = client.pipeline("text-generation", model="...", tier="redundant")
+job = client.fine_tune("...", dataset_path="...", tier="redundant")
+```
+
 Get an API key and testnet OBY at [obelyth.io/faucet](https://obelyth.io/faucet).
 
 ---

@@ -71,6 +71,16 @@ DAO_MINING_TAX_PCT   = 0.05
 BASE_GPU_HOUR_USD    = 0.40
 MIN_JOB_USD          = 0.10
 
+# ── Tier multipliers (Phase 4.2) ───────────────────────────────────────────────
+# Standard tier: 1 miner, optimistic with challenges. Baseline cost.
+# Redundant tier: 3 miners independently, majority consensus. 3x cost reflects
+# the actual 3x compute. DAO can tune via on-chain governance once Phase 2 of
+# governance kicks in (Year 2). Locked at 3.0 for testnet.
+TIER_MULTIPLIER_STANDARD  = 1.0
+TIER_MULTIPLIER_REDUNDANT = 3.0
+REDUNDANT_MINER_COUNT     = 3      # how many miners run a redundant job
+REDUNDANT_TIMEOUT_S       = 600    # 10 min from assignment to finalize
+
 
 # ── Stablecoin Registry ────────────────────────────────────────────────────────
 
@@ -471,6 +481,27 @@ class ComputeJob:
     refund_settled     : bool  = False   # True once swept to dev's stablecoin balance
     refund_stable_paid : float = 0.0     # actual stablecoin amount credited
     refund_settled_at  : int   = 0
+    # ── Tier (Phase 4.2) ──
+    # 'standard'  : 1 miner, optimistic with random challenges (default)
+    # 'redundant' : 3 miners independently, majority consensus, outliers slashed
+    # Future tiers: 'pipeline' (layers split geographically), 'tee_attested'
+    # (hardware attestation). Each tier has its own settlement code path; the
+    # tier field is the dispatch key.
+    tier               : str   = 'standard'
+    # For redundant tier: addresses of all assigned miners. For standard tier
+    # this stays empty and miner_addr is the single assignee.
+    assigned_miners    : list  = field(default_factory=list)
+    # For redundant tier: maps miner_addr -> {result_hash, result_cid, submitted_at}
+    # As each of the N miners submits, the consensus engine accumulates here.
+    result_submissions : dict  = field(default_factory=dict)
+    # For redundant tier: which miners won majority (credited) and which were
+    # outliers (slashed). Empty before finalize() runs.
+    consensus_winners  : list  = field(default_factory=list)
+    consensus_outliers : list  = field(default_factory=list)
+    # For redundant tier: deadline (unix ts) after which we finalize whatever
+    # results are in. 10 min from assignment by default; longer than typical
+    # inference, short enough not to block the dev forever.
+    consensus_deadline : int   = 0
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -569,6 +600,17 @@ class TokenomicsEngine:
             block_hash_provider = self._block_hash,
         )
 
+        # Consensus engine — handles redundant tier. Shares the same
+        # callback set as the verification engine so settlement logic
+        # is unified across tiers.
+        from compute.consensus import ConsensusEngine
+        self.consensus = ConsensusEngine(
+            on_pass   = self._on_pass,
+            on_slash  = self._on_slash,
+            on_refund = self._on_refund,
+            on_ban    = self._on_ban,
+        )
+
         log.info(
             f"TokenomicsEngine v4 | multi-stablecoin reserve\n"
             f"  Basket: USDC {BASKET_TARGETS[Stablecoin.USDC]*100:.0f}% / "
@@ -577,7 +619,7 @@ class TokenomicsEngine:
             f"EURC {BASKET_TARGETS[Stablecoin.EURC]*100:.0f}%\n"
             f"  Creator : {creator_address or 'unset'}\n"
             f"  DAO     : {dao_address or 'unset (multisig)'}\n"
-            f"  Verification: integrated"
+            f"  Verification: integrated | Consensus (redundant tier): integrated"
         )
 
     # ── Verification engine callbacks ─────────────────────────────────────────
@@ -606,7 +648,11 @@ class TokenomicsEngine:
             m.jobs_failed  += 1
             m.offence_count = offence_count
             j = self._jobs.get(job_id)
-            if j is not None:
+            # For standard tier, a slash means the job itself faulted.
+            # For redundant tier, the consensus engine has already set the
+            # correct job status — slashing an outlier on a 2-of-3 majority
+            # job does NOT make the whole job faulted (majority still wins).
+            if j is not None and j.tier == 'standard':
                 j.status = 'faulted'
         log.warning(
             f"on_slash: {miner_addr[:16]} slashed {slashed_oby:.4f} OBY "
@@ -646,31 +692,56 @@ class TokenomicsEngine:
 
     def _on_pass(self, miner_addr: str, job_id: str, method: str):
         """
-        Called by the verification engine when:
-          - a challenge resolves PASSED (matching rerun), or
-          - a challenge expires without dispute (benefit-of-doubt accept).
+        Called by:
+          - VerificationEngine on PASSED challenges or expired-without-dispute
+            (standard tier, fires once per job at most)
+          - ConsensusEngine on each redundant-tier winner (can fire multiple
+            times per job — once per winner)
 
-        Optimistic and ZK accepts are NOT routed here — those are credited
-        synchronously in complete_job_with_verification() because the job
-        transition happens in-line on submit.
+        Optimistic and ZK accepts in standard tier are NOT routed here — those
+        credit synchronously in complete_job_with_verification() because the
+        job transition happens in-line on submit.
 
-        Idempotent: if the job is already 'done', this is a no-op so a
-        slow expiry firing after a manual resolve doesn't double-credit.
+        Idempotency strategy differs by method:
+          - method='consensus' : per-(job, miner) idempotency. Check that
+            this miner isn't already in result_submissions[miner]['credited'].
+            Status is shared across N winners so we can't gate on it.
+          - method in ('challenged', 'optimistic', 'zk') : per-job idempotency,
+            so a slow expiry firing after a manual resolve doesn't double-credit.
         """
         with self._lock:
             j = self._jobs.get(job_id)
             if j is None:
                 log.warning(f"on_pass: unknown job {job_id}")
                 return
-            if j.status == 'done':
-                # Already credited — idempotent no-op
-                return
-            j.status       = 'done'
-            j.completed_at = int(time.time())
             m = self._miners.get(miner_addr)
-            if m:
+            if m is None:
+                log.warning(f"on_pass: unknown miner {miner_addr}")
+                return
+
+            if method == 'consensus':
+                # Per-(job, miner) idempotency: mark the submission as credited
+                sub = j.result_submissions.get(miner_addr)
+                if sub is None:
+                    log.warning(
+                        f"on_pass(consensus): {miner_addr[:16]} has no "
+                        f"submission for {job_id}"
+                    )
+                    return
+                if sub.get('credited'):
+                    return   # already credited
+                sub['credited'] = True
                 m.jobs_completed += 1
                 m.oby_earned     += j.oby_to_miner
+            else:
+                # Standard tier: per-job idempotency
+                if j.status == 'done':
+                    return
+                j.status       = 'done'
+                j.completed_at = int(time.time())
+                m.jobs_completed += 1
+                m.oby_earned     += j.oby_to_miner
+
         log.info(
             f"on_pass: {miner_addr[:16]} credited {j.oby_to_miner:.4f} OBY "
             f"for job {job_id} ({method})"
@@ -925,12 +996,23 @@ class TokenomicsEngine:
         (consensus-deterministic). Reputation is NOT used here — per the
         verification engine's constitutional design, reputation only gates
         challenge rate, not work distribution.
+
+        For redundant-tier jobs, this dispatches to assign_redundant_job
+        and returns the first assignee's address (the API layer uses
+        assign_redundant_job directly when it needs the full list).
         """
-        from compute.verification import assign_miner, NoEligibleMinersError
         with self._lock:
             job = self._jobs.get(job_id)
             if not job or job.status != 'pending':
                 return None
+
+        if job.tier == 'redundant':
+            picks = self.assign_redundant_job(job_id)
+            return picks[0] if picks else None
+
+        # Standard tier
+        from compute.verification import assign_miner, NoEligibleMinersError
+        with self._lock:
             current_block = self._block_height()
             pool = [
                 {
@@ -953,6 +1035,63 @@ class TokenomicsEngine:
             job.status     = 'assigned'
             return chosen
 
+    def assign_redundant_job(self, job_id: str) -> list[str]:
+        """
+        Assign a redundant-tier job to N miners (REDUNDANT_MINER_COUNT).
+
+        Sets job.assigned_miners and job.consensus_deadline, transitions
+        job.status to 'assigned'. Returns the picked addresses in order.
+
+        Returns [] if the job doesn't exist, is the wrong tier, or no
+        N eligible miners are available.
+        """
+        from compute.verification import assign_miners_redundant, NoEligibleMinersError
+        with self._lock:
+            job = self._jobs.get(job_id)
+            if not job:
+                return []
+            if job.tier != 'redundant':
+                log.warning(
+                    f"assign_redundant_job: {job_id} is tier={job.tier!r}"
+                )
+                return []
+            if job.status != 'pending':
+                # Already assigned — return the existing picks for idempotency
+                return list(job.assigned_miners)
+
+            current_block = self._block_height()
+            pool = [
+                {
+                    'address'   : m.address,
+                    'stake_oby' : m.stake_oby,
+                    'is_banned' : m.is_banned(current_block),
+                }
+                for m in self._miners.values()
+            ]
+            try:
+                picks = assign_miners_redundant(
+                    job_id     = job_id,
+                    block_hash = self._block_hash(),
+                    miners     = pool,
+                    n          = REDUNDANT_MINER_COUNT,
+                )
+            except NoEligibleMinersError as e:
+                log.warning(
+                    f"assign_redundant_job: {job_id} — {e} "
+                    f"(redundant tier needs {REDUNDANT_MINER_COUNT}+ miners)"
+                )
+                return []
+
+            job.assigned_miners    = picks
+            job.miner_addr         = picks[0]   # convenience for status display
+            job.status             = 'assigned'
+            job.consensus_deadline = int(time.time()) + REDUNDANT_TIMEOUT_S
+            log.info(
+                f"Redundant job {job_id} assigned to {len(picks)} miners: "
+                f"{[a[:12] for a in picks]} deadline=+{REDUNDANT_TIMEOUT_S}s"
+            )
+            return picks
+
     def submit_job_with_verification(
         self,
         developer_addr     : str,
@@ -970,27 +1109,32 @@ class TokenomicsEngine:
         inputs             : list  = None,
         task               : str   = 'text-generation',
         params             : dict  = None,
+        tier               : str   = 'standard',
     ) -> tuple['ComputeJob', FeeReceipt]:
         """
-        Submit a job AND register it with the verification engine.
+        Submit a job AND register it with the verification or consensus engine
+        depending on tier.
 
-        This is the production submission path. It validates the pinned
-        determinism envelope before creating the job and routing the fee
-        through the AMM. If validation fails, no state changes are made
-        and JobValidationError propagates to the caller (which should
-        return 400 to the developer).
+        Standard tier: registers with VerificationEngine, optimistic with
+        random challenges. oby_to_miner is the full payment.
 
-        inputs/task/params are stored on the ComputeJob so the challenger
-        can reproduce the work. They are NOT part of the verification
-        engine's JobSpec (which only holds the hashes for envelope
-        validation).
+        Redundant tier: registers with ConsensusEngine, three miners run the
+        job in parallel and the majority wins. Total miner payment is 3x the
+        standard cost (priced in at quote time); oby_to_miner stores the
+        per-miner share, so the consensus engine doesn't need to know about
+        the multiplier.
+
+        Both paths still validate the determinism envelope and route fees
+        through process_job_fee identically. The fee split (90/5/5) is
+        applied to the total — DAO and Creator still get their cuts of the
+        gross.
         """
         from compute.verification import JobSpec, validate_job_submission
         import uuid
         job_id = str(uuid.uuid4())[:16]
 
         stable = stable_paid or self.quote_job(
-            job_type, model_id, coin, gpu_count, duration_hr
+            job_type, model_id, coin, gpu_count, duration_hr, tier=tier,
         )['stable_cost']
         approx_payment_oby = self._usd_to_oby(stable * FEE_TO_LIQUIDITY)
         spec = JobSpec(
@@ -1009,10 +1153,18 @@ class TokenomicsEngine:
         receipt   = self.process_job_fee(job_id, coin, stable)
         gross_oby = self._usd_to_oby(receipt.liquidity_usd)
         dao_tax   = round(gross_oby * DAO_MINING_TAX_PCT, 8)
-        miner_oby = round(gross_oby - dao_tax, 8)
+        total_miner_oby = round(gross_oby - dao_tax, 8)
+
+        # For redundant tier the total is shared across REDUNDANT_MINER_COUNT
+        # miners. oby_to_miner stores the per-miner share so the consensus
+        # engine and the on_pass settlement code don't need tier-specific math.
+        if tier == 'redundant':
+            per_miner_oby = round(total_miner_oby / REDUNDANT_MINER_COUNT, 8)
+        else:
+            per_miner_oby = total_miner_oby
 
         # Finalise the spec with the actual payment
-        spec.payment_oby = miner_oby
+        spec.payment_oby = per_miner_oby
 
         job = ComputeJob(
             job_id             = job_id,
@@ -1023,7 +1175,7 @@ class TokenomicsEngine:
             stablecoin         = coin.value,
             stable_paid        = stable,
             usd_paid           = receipt.gross_usd,
-            oby_to_miner       = miner_oby,
+            oby_to_miner       = per_miner_oby,
             model_hash         = model_hash,
             container_digest   = container_digest,
             seed               = seed,
@@ -1032,17 +1184,20 @@ class TokenomicsEngine:
             inputs             = inputs if inputs is not None else [],
             task               = task,
             params             = params if params is not None else {},
+            tier               = tier,
         )
         with self._lock:
             self._jobs[job_id]       = job
             self.dao.vault_oby      += dao_tax
             self.dao.vault_deposits += 1
-            # Register with verification engine so /compute/result can
-            # challenge against the pinned determinism envelope.
-            self.verification.register_job(spec)
+            # Register with verification engine ONLY for standard tier.
+            # Redundant tier uses the consensus engine; it doesn't need
+            # the verification engine's challenge state machine.
+            if tier == 'standard':
+                self.verification.register_job(spec)
 
         log.info(
-            f"Job {job_id} | miner gets {miner_oby:.4f} OBY | "
+            f"Job {job_id} ({tier}) | per-miner {per_miner_oby:.4f} OBY | "
             f"dao vault +{dao_tax:.4f} OBY (5% tax) | "
             f"model_hash={model_hash[:12]}.. seed={seed}"
         )
@@ -1057,29 +1212,71 @@ class TokenomicsEngine:
         zk_proof    : str = '',
     ) -> 'VerificationResult':
         """
-        Submit a completed job through the verification engine.
+        Submit a completed job. Dispatches on tier:
 
-        The engine decides whether to issue a challenge based on the miner's
-        tier (new/trusted/slashed) and a deterministic per-job seed. If the
-        result is optimistically accepted (or ZK-verified), the miner is
-        credited immediately. If a challenge is issued, settlement waits
-        for the challenger to resolve it via resolve_challenge().
+        Standard tier:
+          Routes through VerificationEngine. The engine decides whether to
+          issue a challenge based on the miner's tier (new/trusted/slashed)
+          and a deterministic per-job seed. Optimistic/ZK accepts credit
+          immediately; challenged results wait for resolve_challenge().
+
+        Redundant tier:
+          Accumulates the submission via ConsensusEngine. The job sits in
+          'assigned' until either all N miners have submitted or the
+          consensus deadline passes — only then does finalize() run.
+
+        Returns a VerificationResult for standard tier or a synthesized
+        VerificationResult-shaped dict for redundant tier so the API layer
+        can present a consistent response shape.
         """
+        from compute.verification import VerificationResult
+        from compute.consensus import ConsensusError
+
         with self._lock:
             job = self._jobs.get(job_id)
             if not job:
                 raise ValueError(f"unknown job {job_id}")
-            if job.miner_addr and job.miner_addr != miner_addr:
-                raise ValueError(
-                    f"miner mismatch: job assigned to {job.miner_addr}, "
-                    f"submitted by {miner_addr}"
-                )
-            m = self._miners.get(miner_addr)
+            tier = job.tier
+            m    = self._miners.get(miner_addr)
             if m is None:
                 raise ValueError(f"unregistered miner {miner_addr}")
-            miner_rep    = m.reputation
-            miner_jobs   = m.jobs_completed
-            miner_banned = m.is_banned(self._block_height())
+
+        # ── Redundant tier: route through consensus ──
+        if tier == 'redundant':
+            try:
+                with self._lock:
+                    sub = self.consensus.submit_result(
+                        job        = job,
+                        miner_addr = miner_addr,
+                        result_hash= result_hash,
+                        result_cid = result_cid,
+                    )
+            except ConsensusError as e:
+                raise ValueError(str(e))
+
+            # If all N have submitted, finalize immediately
+            if sub['ready_to_finalize']:
+                self._finalize_redundant_locked(job)
+
+            return VerificationResult(
+                job_id  = job_id,
+                passed  = True,
+                method  = 'consensus_pending',
+                details = (
+                    f"submission {sub['submissions_count']}/"
+                    f"{len(job.assigned_miners)} accepted"
+                ),
+            )
+
+        # ── Standard tier (unchanged) ──
+        if job.miner_addr and job.miner_addr != miner_addr:
+            raise ValueError(
+                f"miner mismatch: job assigned to {job.miner_addr}, "
+                f"submitted by {miner_addr}"
+            )
+        miner_rep    = m.reputation
+        miner_jobs   = m.jobs_completed
+        miner_banned = m.is_banned(self._block_height())
 
         result = self.verification.submit_result(
             job_id        = job_id,
@@ -1106,6 +1303,52 @@ class TokenomicsEngine:
                     m.oby_earned     += job.oby_to_miner
 
         return result
+
+    def _finalize_redundant_locked(self, job):
+        """Run consensus finalization on a redundant job. Must be called with
+        self._lock held. Wires the offence/stake/block-height providers so
+        the consensus engine can compute slash amounts and ban deadlines
+        without coupling to internal state.
+        """
+        def _offence_count(addr: str) -> int:
+            m = self._miners.get(addr)
+            return m.offence_count if m else 0
+        def _stake(addr: str) -> float:
+            m = self._miners.get(addr)
+            return m.stake_oby if m else 0.0
+
+        return self.consensus.finalize(
+            job                    = job,
+            offence_count_provider = _offence_count,
+            stake_provider         = _stake,
+            block_height_provider  = self._block_height,
+        )
+
+    def finalize_due_redundant_jobs(self) -> list:
+        """
+        Walk all assigned redundant jobs and finalize any past their
+        consensus_deadline (timeout path). Called by the node's background
+        sweep loop every 30s or so.
+
+        Returns the list of ConsensusOutcome for jobs that were finalized
+        on this call.
+        """
+        now = int(time.time())
+        finalized = []
+        with self._lock:
+            candidates = [
+                j for j in self._jobs.values()
+                if j.tier == 'redundant'
+                and j.status in ('assigned', 'pending')
+                and self.consensus.is_ready_to_finalize(j, now)
+            ]
+        for job in candidates:
+            with self._lock:
+                outcome = self._finalize_redundant_locked(job)
+            finalized.append(outcome)
+        if finalized:
+            log.info(f"finalize_due_redundant_jobs: settled {len(finalized)}")
+        return finalized
 
     def resolve_job_challenge(
         self,
@@ -1360,19 +1603,39 @@ class TokenomicsEngine:
         coin       : Stablecoin = Stablecoin.USDC,
         gpu_count  : int   = 1,
         duration_hr: float = 1.0,
+        tier       : str   = 'standard',
     ) -> dict:
+        """
+        Price a job. tier='standard' uses the base rate; tier='redundant'
+        applies the 3x multiplier so the dev pays for all three miners.
+
+        Pricing is transparent — there's no hidden DAO subsidy for redundant
+        tier. The developer who needs trust-minimized verification pays for
+        it; the price signal correctly directs cheap jobs to standard tier
+        and trust-critical jobs to redundant tier.
+        """
         mults = {
             'inference'  : 0.05,
             'embedding'  : 0.10,
             'fine_tuning': 1.00,
             'benchmark'  : 0.00,
         }
-        usd_cost    = max(MIN_JOB_USD,
-                         BASE_GPU_HOUR_USD * gpu_count * duration_hr * mults.get(job_type, 1.0))
+        tier_mults = {
+            'standard'  : TIER_MULTIPLIER_STANDARD,
+            'redundant' : TIER_MULTIPLIER_REDUNDANT,
+        }
+        if tier not in tier_mults:
+            raise ValueError(f'unknown tier: {tier!r}')
+        tier_mult = tier_mults[tier]
+
+        base_usd    = BASE_GPU_HOUR_USD * gpu_count * duration_hr * mults.get(job_type, 1.0)
+        usd_cost    = max(MIN_JOB_USD, base_usd * tier_mult)
         rate        = self.rates.get(coin)
         stable_cost = round(usd_cost / rate, 6)
         return {
             'job_type'       : job_type,
+            'tier'           : tier,
+            'tier_multiplier': tier_mult,
             'coin'           : coin.value,
             'stable_cost'    : stable_cost,
             'usd_cost'       : round(usd_cost, 4),
@@ -1502,6 +1765,9 @@ class TokenomicsEngine:
                     'inputs', 'task', 'params',
                     'refund_oby', 'refund_settled', 'refund_stable_paid',
                     'refund_settled_at',
+                    'tier', 'assigned_miners', 'result_submissions',
+                    'consensus_winners', 'consensus_outliers',
+                    'consensus_deadline',
                 }
                 clean = {k: v for k, v in j_dict.items() if k in known_fields}
                 self._jobs[jid] = ComputeJob(**clean)

@@ -149,7 +149,13 @@ class ComputeAPI:
     # ── Developer endpoints ────────────────────────────────────────────────────
 
     def quote(self, body: dict) -> tuple[int, dict]:
-        """POST /compute/quote — no auth required, dev sees pricing before signing up."""
+        """POST /compute/quote — no auth required, dev sees pricing before signing up.
+
+        Accepts an optional 'tier' parameter ('standard' | 'redundant').
+        Redundant tier returns 3x the standard cost because three miners run
+        the job in parallel for trust-minimized verification. Default tier
+        is 'standard' for backwards compatibility with v1 SDK clients.
+        """
         from tokenomics.engine import Stablecoin
         try:
             coin_str = body.get('coin', 'USDC').upper()
@@ -157,13 +163,18 @@ class ComputeAPI:
         except KeyError:
             return _err(400, f'unsupported stablecoin: {body.get("coin")}')
 
-        quote = self.engine.quote_job(
-            job_type    = body.get('job_type', 'inference'),
-            model_id    = body.get('model_id', ''),
-            coin        = coin,
-            gpu_count   = int(body.get('gpu_count', 1)),
-            duration_hr = float(body.get('duration_hr', 1.0)),
-        )
+        tier = body.get('tier', 'standard')
+        try:
+            quote = self.engine.quote_job(
+                job_type    = body.get('job_type', 'inference'),
+                model_id    = body.get('model_id', ''),
+                coin        = coin,
+                gpu_count   = int(body.get('gpu_count', 1)),
+                duration_hr = float(body.get('duration_hr', 1.0)),
+                tier        = tier,
+            )
+        except ValueError as e:
+            return _err(400, str(e))
         return _ok(quote)
 
     def submit(self, body: dict) -> tuple[int, dict]:
@@ -221,6 +232,10 @@ class ComputeAPI:
                 f"dev={developer_addr[:12]}.. (SDK v1 client)"
             )
 
+        tier = body.get('tier', 'standard')
+        if tier not in ('standard', 'redundant'):
+            return _err(400, f'unknown tier: {tier!r}')
+
         try:
             job, receipt = self.engine.submit_job_with_verification(
                 developer_addr     = developer_addr,
@@ -237,6 +252,7 @@ class ComputeAPI:
                 inputs             = body.get('inputs') or [],
                 task               = body.get('task', 'text-generation'),
                 params             = body.get('params') or {},
+                tier               = tier,
             )
         except JobValidationError as e:
             return _err(400, f'determinism envelope invalid: {e}')
@@ -244,11 +260,34 @@ class ComputeAPI:
             log.exception(f"submit failed: {e}")
             return _err(500, f'submit failed: {e}')
 
-        # Try to assign right away so the miner pool can pick it up
-        miner = self.engine.assign_job(job.job_id)
+        # Assignment depends on tier:
+        #  standard  → assign_job picks 1 miner (or returns None if no pool)
+        #  redundant → assign_redundant_job picks N=3 distinct miners
+        if tier == 'redundant':
+            picks = self.engine.assign_redundant_job(job.job_id)
+            assigned = len(picks) == 0 and False or (len(picks) > 0)
+            return _ok({
+                'job_id'             : job.job_id,
+                'tier'               : 'redundant',
+                'status'             : job.status,
+                'assigned_miners'    : picks,
+                'assigned'           : assigned,
+                'usdc_cost'          : receipt.gross_usd,
+                'oby_per_miner'      : job.oby_to_miner,
+                'oby_total'          : round(
+                    job.oby_to_miner * len(picks) if picks else 0, 8
+                ),
+                'consensus_deadline' : job.consensus_deadline,
+                'stablecoin'         : job.stablecoin,
+                'model_hash'         : job.model_hash,
+                'seed'               : job.seed,
+            })
 
+        # Standard tier
+        miner = self.engine.assign_job(job.job_id)
         return _ok({
             'job_id'      : job.job_id,
+            'tier'        : 'standard',
             'status'      : job.status,
             'miner_addr'  : job.miner_addr or '',
             'assigned'    : miner is not None,
@@ -260,13 +299,21 @@ class ComputeAPI:
         })
 
     def job_status(self, body: dict) -> tuple[int, dict]:
-        """POST /compute/job — poll job status."""
+        """POST /compute/job — poll job status.
+
+        Returns the standard set of job fields for all jobs, plus tier-specific
+        extras for redundant jobs (assigned_miners, submissions count, winners,
+        outliers, consensus_deadline). Devs polling redundant jobs can use the
+        submissions count to track progress toward finalization.
+        """
         job_id = body.get('job_id', '')
         job = self.engine.get_job(job_id)
         if not job:
             return _err(404, 'job not found')
-        return _ok({
+
+        resp = {
             'job_id'      : job.job_id,
+            'tier'        : job.tier,
             'status'      : job.status,
             'miner_addr'  : job.miner_addr,
             'model_id'    : job.model_id,
@@ -277,7 +324,17 @@ class ComputeAPI:
             'refund_oby'  : job.refund_oby,
             'created_at'  : job.created_at,
             'completed_at': job.completed_at,
-        })
+        }
+        if job.tier == 'redundant':
+            resp.update({
+                'assigned_miners'   : list(job.assigned_miners),
+                'submissions_count' : len(job.result_submissions),
+                'submissions_needed': len(job.assigned_miners),
+                'consensus_winners' : list(job.consensus_winners),
+                'consensus_outliers': list(job.consensus_outliers),
+                'consensus_deadline': job.consensus_deadline,
+            })
+        return _ok(resp)
 
     def infer(self, body: dict) -> tuple[int, dict]:
         """
@@ -388,6 +445,13 @@ class ComputeAPI:
         hasn't been completed (the miner may have crashed and is re-polling
         to recover). Second, try assigning a pending job to this miner via
         the stake-weighted draw and return it if it lands here.
+
+        Handles both standard and redundant tiers:
+          - Standard: a job is "this miner's" when j.miner_addr == miner_addr
+          - Redundant: a job is "this miner's" when miner_addr in
+            j.assigned_miners AND this miner hasn't yet submitted a result
+            for it (otherwise we'd hand the same job back to a miner who's
+            done their part)
         """
         params = dict(urllib.parse.parse_qsl(query_string))
         miner_addr = params.get('address', '')
@@ -397,11 +461,30 @@ class ComputeAPI:
         # Pass 1: pick up an existing assignment if one exists
         with self.engine._lock:
             for j in self.engine._jobs.values():
-                if j.status == 'assigned' and j.miner_addr == miner_addr:
+                if j.status != 'assigned':
+                    continue
+                if j.tier == 'redundant':
+                    # Redundant: skip if this miner isn't assigned, or has
+                    # already submitted (would otherwise re-issue the same
+                    # work the miner has finished)
+                    if miner_addr not in j.assigned_miners:
+                        continue
+                    if miner_addr in j.result_submissions:
+                        continue
+                    return _ok(self._job_payload_for_miner(j))
+                # Standard tier
+                if j.miner_addr == miner_addr:
                     return _ok(self._job_payload_for_miner(j))
 
         # Pass 2: try assigning a pending job (stake-weighted draw)
         for job_id in self.engine.pending_jobs_for_assignment():
+            # Redundant jobs get assigned to N miners simultaneously in
+            # submit(), not here. pending_jobs_for_assignment only returns
+            # status='pending' which should never include redundant jobs
+            # post-submit, but guard anyway.
+            job = self.engine.get_job(job_id)
+            if job and job.tier == 'redundant':
+                continue
             assigned_to = self.engine.assign_job(job_id)
             if assigned_to == miner_addr:
                 job = self.engine.get_job(job_id)

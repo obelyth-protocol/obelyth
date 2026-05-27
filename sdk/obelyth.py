@@ -112,12 +112,14 @@ class ObelythPipeline:
         model      : str,
         client     : 'ObelythClient',
         fallback   : bool = True,
+        tier       : str  = 'standard',
         **hf_kwargs,
     ):
         self.task      = task
         self.model     = model
         self.client    = client
         self.fallback  = fallback
+        self.tier      = tier
         self._hf_kwargs = hf_kwargs
         self._local_pipe = None    # lazy-loaded if fallback needed
 
@@ -132,6 +134,7 @@ class ObelythPipeline:
                 model   = self.model,
                 inputs  = inputs,
                 params  = kwargs,
+                tier    = self.tier,
             )
         except ObelythNoMinersError:
             if self.fallback:
@@ -200,6 +203,19 @@ class ObelythClient:
         )
         job.wait(client)
         print(f"Fine-tuned model at IPFS CID: {job.result_cid}")
+    Tier selection:
+        Two tiers are supported: 'standard' and 'redundant'.
+        - 'standard' (default): one miner runs the job, optimistic verification
+          with random challenges. Cheapest. Equivalent trust model to AWS.
+        - 'redundant': three miners run the job independently in parallel,
+          majority consensus on the result hash, outlier slashed. 3x cost.
+          Use when you need cryptographic verification that the result
+          wasn't manipulated by a single provider.
+
+        Set the default at the client level, or override per call:
+            client = ObelythClient(api_key='...', tier='redundant')
+            # or
+            client.pipeline('text-generation', model='...', tier='redundant')
     """
 
     def __init__(
@@ -209,11 +225,17 @@ class ObelythClient:
         timeout    : int  = 30,
         fallback   : bool = True,    # fall back to local HF if no miners
         verbose    : bool = False,
+        tier       : str  = 'standard',
     ):
+        if tier not in ('standard', 'redundant'):
+            raise ValueError(
+                f"tier must be 'standard' or 'redundant', got {tier!r}"
+            )
         self.api_key  = api_key or os.environ.get('OBELYTH_API_KEY', '')
         self.node_url = node_url.rstrip('/')
         self.timeout  = timeout
         self.fallback = fallback
+        self.tier     = tier
 
         if verbose:
             logging.basicConfig(level=logging.DEBUG)
@@ -221,7 +243,20 @@ class ObelythClient:
         self._session_id = hashlib.sha3_256(
             (self.api_key + str(time.time())).encode()
         ).hexdigest()[:16]
-        log.info(f"ObelythClient initialized → {self.node_url}")
+
+        # For testnet/dev mode (no accounts registry on node side), we need
+        # to send a stable developer_addr so the engine has somewhere to
+        # attribute the job. Derive it deterministically from api_key when
+        # present, falling back to a session-stable random one. In production
+        # mode (node has accounts_enabled), this is ignored — the engine
+        # forces developer_addr to account.account_id from the api_key.
+        self._developer_addr = 'sdk_' + hashlib.sha3_256(
+            (self.api_key or self._session_id).encode()
+        ).hexdigest()[:32]
+
+        log.info(
+            f"ObelythClient initialized → {self.node_url} (tier={self.tier})"
+        )
 
     # ── Core API ───────────────────────────────────────────────────────────────
 
@@ -229,19 +264,27 @@ class ObelythClient:
         self,
         task   : str,
         model  : str,
+        tier   : str = None,
         **kwargs,
     ) -> ObelythPipeline:
         """
         Exact drop-in for transformers.pipeline().
         Change just this one line in your code.
+
+        tier: 'standard' (default) or 'redundant'. Overrides client-level
+        tier for this pipeline instance.
         """
-        return ObelythPipeline(task, model, client=self, fallback=self.fallback, **kwargs)
+        return ObelythPipeline(
+            task, model, client=self, fallback=self.fallback,
+            tier=tier or self.tier, **kwargs,
+        )
 
     def embed(
         self,
         texts  : list[str],
         model  : str = 'BAAI/bge-large-en-v1.5',
         batch_size: int = 32,
+        tier   : str = None,
     ) -> list[list[float]]:
         """
         Generate embeddings for a list of texts.
@@ -255,6 +298,7 @@ class ObelythClient:
             model  = model,
             inputs = texts,
             params = {'batch_size': batch_size},
+            tier   = tier,
         )
         # In production: deserialise float arrays from miner response
         # Stub: return mock embeddings for development
@@ -272,11 +316,14 @@ class ObelythClient:
         max_seq_len  : int   = 2048,
         output_name  : str   = '',
         gpu_count    : int   = 1,
+        tier         : str   = None,
     ) -> FineTuneJob:
         """
         Submit a fine-tuning job.
         Dataset: local JSONL file (uploaded to IPFS automatically).
         Returns FineTuneJob — call .wait(client) to block until complete.
+
+        tier overrides the client-level default for this single job.
 
         Usage:
             job = client.fine_tune(
@@ -288,6 +335,7 @@ class ObelythClient:
             result = job.wait(client)
             print(f"Model ready: {result.result_cid}")
         """
+        effective_tier = tier or self.tier
         dataset_cid = self._upload_dataset(dataset_path)
         config = {
             'base_model'   : base_model,
@@ -305,20 +353,24 @@ class ObelythClient:
             'job_type' : 'fine_tuning',
             'model_id' : base_model,
             'gpu_count': gpu_count,
+            'tier'     : effective_tier,
         })
         if quote:
             log.info(
-                f"Fine-tune quote: ${quote.get('usdc_cost', '?')} USDC "
+                f"Fine-tune quote ({effective_tier}): "
+                f"${quote.get('usd_cost', quote.get('usdc_cost', '?'))} USDC "
                 f"(saves {quote.get('savings_pct','?')}% vs AWS)"
             )
 
         # Submit
         resp = self._rpc_post('/compute/submit', {
-            'job_type'   : 'fine_tuning',
-            'model_id'   : base_model,
-            'config'     : config,
-            'gpu_count'  : gpu_count,
-            'api_key'    : self.api_key,
+            'job_type'        : 'fine_tuning',
+            'model_id'        : base_model,
+            'config'          : config,
+            'gpu_count'       : gpu_count,
+            'api_key'         : self.api_key,
+            'developer_addr'  : self._developer_addr,
+            'tier'            : effective_tier,
         })
 
         if not resp or 'job_id' not in resp:
@@ -359,17 +411,29 @@ class ObelythClient:
         model    : str,
         gpu_count: int   = 1,
         hours    : float = 1.0,
+        tier     : str   = None,
     ) -> dict:
-        """Get a price quote before submitting a job."""
+        """Get a price quote before submitting a job.
+
+        tier: 'standard' or 'redundant'. Defaults to the client's tier
+        (set in the constructor). Redundant tier returns 3x cost because
+        three miners run the job in parallel for majority consensus.
+        """
+        effective_tier = tier or self.tier
         resp = self._rpc_post('/compute/quote', {
-            'job_type' : task,
-            'model_id' : model,
-            'gpu_count': gpu_count,
+            'job_type'   : task,
+            'model_id'   : model,
+            'gpu_count'  : gpu_count,
             'duration_hr': hours,
+            'tier'       : effective_tier,
         })
         return resp or {
-            'usdc_cost'       : round(0.40 * gpu_count * hours, 4),
-            'savings_pct'     : 56.4,
+            'usdc_cost'       : round(
+                0.40 * gpu_count * hours
+                * (3.0 if effective_tier == 'redundant' else 1.0), 4
+            ),
+            'tier'            : effective_tier,
+            'savings_pct'     : 56.4 if effective_tier == 'standard' else -32.0,
             'aws_equiv_usdc'  : round(0.918 * gpu_count * hours, 4),
             'note'            : 'Estimated (node offline)',
         }
@@ -391,15 +455,22 @@ class ObelythClient:
         model  : str,
         inputs : Any,
         params : dict,
+        tier   : str = None,
     ) -> list[InferenceResult]:
-        """Send inference job to Obelyth node and return results."""
+        """Send inference job to Obelyth node and return results.
+
+        tier overrides the client-level default for this single call.
+        """
+        effective_tier = tier or self.tier
         start = time.time()
         resp  = self._rpc_post('/compute/infer', {
-            'task'   : task,
-            'model'  : model,
-            'inputs' : inputs if isinstance(inputs, list) else [inputs],
-            'params' : params,
-            'api_key': self.api_key,
+            'task'           : task,
+            'model'          : model,
+            'inputs'         : inputs if isinstance(inputs, list) else [inputs],
+            'params'         : params,
+            'api_key'        : self.api_key,
+            'developer_addr' : self._developer_addr,
+            'tier'           : effective_tier,
         })
 
         if resp is None:

@@ -349,6 +349,72 @@ def assign_miner(
     return pool[-1]['address']
 
 
+def assign_miners_redundant(
+    job_id        : str,
+    block_hash    : bytes,
+    miners        : list[dict],
+    n             : int,
+) -> list[str]:
+    """
+    Select N distinct miners via stake-weighted random sampling for the
+    redundant tier.
+
+    Each draw is seeded with (block_hash || job_id || pick_index) so all
+    nodes deterministically arrive at the same N picks. Without the
+    pick_index suffix, every iteration would produce the same draw and
+    the redundancy would be meaningless.
+
+    Sampling is without replacement — once a miner is picked, they're
+    excluded from subsequent draws. This means redundancy across 3 miners
+    requires 3+ eligible miners. If fewer than N miners meet the stake/ban
+    bar, raises NoEligibleMinersError. Important for tests: bootstrap with
+    enough miners.
+
+    Returns the N chosen addresses in pick order.
+    """
+    if n < 1:
+        raise ValueError(f'n must be >= 1, got {n}')
+
+    pool = [
+        m for m in miners
+        if not m.get('is_banned', False)
+           and float(m.get('stake_oby', 0)) >= MIN_STAKE_OBY
+    ]
+    if len(pool) < n:
+        raise NoEligibleMinersError(
+            f'redundant tier needs {n} miners, only {len(pool)} eligible'
+        )
+
+    # Canonical order — all nodes walk the same pool in the same order
+    pool = sorted(pool, key=lambda m: m['address'])
+    picks: list[str] = []
+
+    for i in range(n):
+        remaining = [m for m in pool if m['address'] not in picks]
+        total_stake = sum(float(m['stake_oby']) for m in remaining)
+        if total_stake <= 0:
+            raise NoEligibleMinersError(
+                f'redundant tier: stake exhausted at pick {i+1}/{n}'
+            )
+
+        # The pick_index is part of the seed so each pick is a fresh draw
+        seed_bytes = block_hash + job_id.encode('utf-8') + i.to_bytes(4, 'big')
+        draw = _deterministic_uniform(seed_bytes) * total_stake
+
+        cumulative = 0.0
+        chosen = None
+        for m in remaining:
+            cumulative += float(m['stake_oby'])
+            if draw < cumulative:
+                chosen = m['address']
+                break
+        if chosen is None:
+            chosen = remaining[-1]['address']   # FP edge case
+        picks.append(chosen)
+
+    return picks
+
+
 # ── Verification engine ───────────────────────────────────────────────────────
 
 class VerificationEngine:

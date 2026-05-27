@@ -63,6 +63,7 @@ class RPCHandler(BaseHTTPRequestHandler):
             '/balance'                   : self._balance,
             '/compute/nextjob'           : lambda: self._compute_nextjob(query),
             '/compute/pending_challenges': lambda: self._compute_pending_challenges(query),
+            '/faucet/status'             : self._faucet_status,
         }
         handler = routes.get(path_only)
         if handler:
@@ -98,6 +99,8 @@ class RPCHandler(BaseHTTPRequestHandler):
             '/compute/heartbeat'         : self._compute_heartbeat,
             '/compute/result'            : self._compute_result,
             '/compute/challenge_resolve' : self._compute_challenge_resolve,
+            # ── Faucet routes ──
+            '/faucet/claim'              : self._faucet_claim,
         }
         handler = routes.get(self.path)
         if handler:
@@ -219,6 +222,52 @@ class RPCHandler(BaseHTTPRequestHandler):
     def _compute_challenge_resolve(self, req):
         return self.node.compute_api.resolve_challenge(req)
 
+    # ── Faucet routes ────────────────────────────────────────────────────────
+
+    def _faucet_status(self):
+        if self.node.faucet is None:
+            return (503, {'error': 'faucet disabled'})
+        return self.node.faucet.status()
+
+    def _faucet_claim(self, req):
+        from faucet import FaucetError, FaucetMissingApiKey, FaucetUnknownAccount, \
+            FaucetInvalidAddress, FaucetAlreadyClaimed, FaucetIPCooldown, \
+            FaucetBudgetExhausted, FaucetReserveDry
+        if self.node.faucet is None:
+            return (503, {'error': 'faucet disabled'})
+        # Source IP comes from the HTTP connection — never trust a client-
+        # provided IP field. Use the first hop of the TCP socket.
+        source_ip = self.client_address[0] if self.client_address else 'unknown'
+        try:
+            claim = self.node.faucet.claim(
+                address   = req.get('address', ''),
+                source_ip = source_ip,
+                api_key   = req.get('api_key', ''),
+            )
+            return (200, {
+                'tx_hash'    : claim.tx_hash,
+                'amount_oby' : claim.amount_oby,
+                'address'    : claim.address,
+                'claim_id'   : claim.claim_id,
+                'claim_at'   : claim.claim_at,
+            })
+        except FaucetInvalidAddress as e:
+            return (400, {'error': str(e), 'code': e.code})
+        except FaucetMissingApiKey as e:
+            return (401, {'error': str(e), 'code': e.code})
+        except FaucetUnknownAccount as e:
+            return (401, {'error': str(e), 'code': e.code})
+        except FaucetAlreadyClaimed as e:
+            return (409, {'error': str(e), 'code': e.code})
+        except FaucetIPCooldown as e:
+            return (429, {'error': str(e), 'code': e.code})
+        except FaucetBudgetExhausted as e:
+            return (503, {'error': str(e), 'code': e.code})
+        except FaucetReserveDry as e:
+            return (503, {'error': str(e), 'code': e.code})
+        except FaucetError as e:
+            return (500, {'error': str(e), 'code': e.code})
+
 
 # ── Full Node ──────────────────────────────────────────────────────────────────
 
@@ -233,6 +282,7 @@ class FullNode:
         data_dir         : str  = './obelyth_data',
         founder_key      : str  = None,    # path to founder WIF key file
         accounts_enabled : bool = False,   # require API key auth on /compute/submit
+        faucet_enabled   : bool = False,   # enable /faucet/* endpoints
     ):
         self.p2p_port      = p2p_port
         self.rpc_port      = rpc_port
@@ -322,6 +372,28 @@ class FullNode:
             accounts_registry = self.accounts_registry,
         )
 
+        # ── Faucet (optional) ──
+        # The faucet uses the node's own wallet as its OBY reserve. In
+        # production a dedicated wallet would be loaded here. The faucet
+        # requires accounts_registry when require_api_key=True (default);
+        # if accounts are disabled, the faucet falls back to anonymous mode
+        # with per-address dedupe instead of per-account.
+        self.faucet = None
+        if faucet_enabled:
+            from faucet import FaucetService
+            self.faucet = FaucetService(
+                chain             = self.chain,
+                wallet            = self.wallet,
+                accounts_registry = self.accounts_registry,
+                db_path           = str(self.data_dir / 'faucet.db'),
+                require_api_key   = (self.accounts_registry is not None),
+            )
+            log.info(
+                f"Faucet enabled at /faucet/* "
+                f"(payout={self.faucet.payout_oby:.0f} OBY, "
+                f"daily_budget={self.faucet.daily_budget_oby:.0f} OBY)"
+            )
+
         # ── Network ──
         self.network = NetworkNode(
             port       = p2p_port,
@@ -390,10 +462,21 @@ class FullNode:
             f"Refund sweep started (interval={self.REFUND_SWEEP_INTERVAL_S}s)"
         )
 
+        # Consensus sweep loop — finalizes redundant-tier jobs that hit their
+        # deadline without receiving all N submissions. The 30s interval is
+        # tighter than the refund sweep because timeouts affect dev-visible
+        # job status (refunds are background settlement).
+        threading.Thread(target=self._consensus_sweep_loop, daemon=True,
+                         name='consensus-sweep').start()
+        log.info(
+            f"Consensus sweep started (interval={self.CONSENSUS_SWEEP_INTERVAL_S}s)"
+        )
+
         log.info("=== Obelyth node running ===")
         self._print_status()
 
-    REFUND_SWEEP_INTERVAL_S = 60.0   # how often to sweep faulted-job refunds
+    REFUND_SWEEP_INTERVAL_S    = 60.0   # how often to sweep faulted-job refunds
+    CONSENSUS_SWEEP_INTERVAL_S = 30.0   # how often to finalize timed-out redundant jobs
 
     def _refund_sweep_loop(self):
         # Let the rest of the node settle before the first sweep
@@ -413,6 +496,30 @@ class FullNode:
             except Exception as e:
                 log.error(f"Refund sweep error: {e}")
             time.sleep(self.REFUND_SWEEP_INTERVAL_S)
+
+    def _consensus_sweep_loop(self):
+        """Finalize redundant-tier jobs past their consensus_deadline.
+
+        A redundant job naturally finalizes when its Nth miner submits a
+        result (in complete_job_with_verification). This loop catches the
+        timeout case: if some miners go silent, the dev shouldn't be left
+        with a permanently 'assigned' job.
+        """
+        time.sleep(10)
+        while True:
+            try:
+                finalized = self.tokenomics.finalize_due_redundant_jobs()
+                if finalized:
+                    by_status = {}
+                    for o in finalized:
+                        by_status[o.status] = by_status.get(o.status, 0) + 1
+                    log.info(
+                        f"Consensus sweep: finalized {len(finalized)} "
+                        f"{by_status}"
+                    )
+            except Exception as e:
+                log.error(f"Consensus sweep error: {e}")
+            time.sleep(self.CONSENSUS_SWEEP_INTERVAL_S)
 
     def _mine_loop(self):
         time.sleep(5)  # let network settle
@@ -479,6 +586,9 @@ def main():
     parser.add_argument('--founder-key',  type=str, default=None,          help='Path to founder WIF key file')
     parser.add_argument('--accounts-enabled', action='store_true',
                         help='Require valid API key on /compute/submit (production mode)')
+    parser.add_argument('--faucet-enabled', action='store_true',
+                        help='Enable /faucet/claim and /faucet/status endpoints '
+                             '(testnet only; uses node wallet as reserve)')
     parser.add_argument('--challenger', action='store_true',
                         help='Run a challenger daemon in-process (polls own RPC '
                              'for pending challenges, reruns work, posts verdicts)')
@@ -500,6 +610,7 @@ def main():
         data_dir         = args.data_dir,
         founder_key      = args.founder_key,
         accounts_enabled = args.accounts_enabled,
+        faucet_enabled   = args.faucet_enabled,
     )
 
     # Optional: start in-process challenger daemon
