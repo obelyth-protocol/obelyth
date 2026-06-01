@@ -28,6 +28,7 @@ from network.p2p        import NetworkNode
 from wallet.wallet      import Wallet
 from tokenomics.engine  import TokenomicsEngine
 from compute.api        import ComputeAPI
+from node.observability import MetricsRegistry, evaluate_health
 
 logging.basicConfig(
     level   = logging.INFO,
@@ -57,6 +58,8 @@ class RPCHandler(BaseHTTPRequestHandler):
         query = self.path.split('?', 1)[1] if '?' in self.path else ''
         routes = {
             '/status'                    : self._status,
+            '/health'                    : self._health,
+            '/metrics'                   : self._metrics,
             '/peers'                     : self._peers,
             '/mempool'                   : self._mempool,
             '/vesting'                   : self._vesting,
@@ -147,6 +150,138 @@ class RPCHandler(BaseHTTPRequestHandler):
         s['network'] = self.node.network.status()
         s['uptime_s'] = int(time.time() - self.node.started_at)
         return s
+
+    def _health(self):
+        """GET /health — minimal binary status for external monitors.
+
+        Returns 200 if healthy or degraded (still serving), 503 if unhealthy
+        (something is genuinely wrong). UptimeRobot/Healthchecks.io can use
+        the HTTP status alone; the body has enough detail to triage from
+        a Discord alert without SSHing in."""
+        n = self.node
+        uptime_s = time.time() - n.started_at
+        tips = n.chain.dag.tips()
+        last_block_ts = None
+        if tips:
+            # Tip freshness measured from the most recently mined tip.
+            # tips[].header.timestamp is unix seconds.
+            try:
+                last_block_ts = float(max(t.header.timestamp for t in tips))
+            except (AttributeError, ValueError):
+                last_block_ts = None
+
+        status, reasons = evaluate_health(
+            uptime_s        = uptime_s,
+            persist         = n.metrics.persist,
+            mempool_size    = len(n.chain.mempool),
+            last_block_ts   = last_block_ts,
+            persist_enabled = True,
+        )
+
+        body = {
+            'status'  : status,
+            'uptime_s': int(uptime_s),
+            'height'  : n.chain.dag.height(),
+        }
+        if reasons:
+            body['reasons'] = reasons
+
+        # Map status → HTTP code. 200 covers ok+degraded so the monitor only
+        # alarms on real unhealthy state. The reasons list still surfaces
+        # degraded conditions for anyone looking at the body.
+        code = 503 if status == 'unhealthy' else 200
+        return (code, body)
+
+    def _metrics(self):
+        """GET /metrics — full diagnostic JSON dump.
+
+        Used by humans + dashboards. Counters here are monotonic so any
+        time-series tool can compute rates from successive scrapes. Always
+        returns 200 — this endpoint informs rather than judges."""
+        n = self.node
+        uptime_s = time.time() - n.started_at
+
+        # Tip metadata for the chain block
+        tips = n.chain.dag.tips()
+        tip_hash      = None
+        tip_timestamp = None
+        tip_miner     = None
+        if tips:
+            tips_sorted = sorted(tips, key=lambda b: (-b.header.height, b.hash))
+            t = tips_sorted[0]
+            tip_hash      = t.hash
+            try:
+                tip_timestamp = float(t.header.timestamp)
+            except (AttributeError, ValueError):
+                tip_timestamp = None
+            tip_miner = getattr(t.header, 'miner_address', None)
+
+        # Mempool digest — count + total fees + age of oldest tx if any
+        mp = n.chain.mempool
+        total_fees = 0.0
+        oldest_age = None
+        if mp:
+            for tx in mp:
+                try:
+                    total_fees += float(getattr(tx, 'fee', 0) or 0)
+                except (TypeError, ValueError):
+                    pass
+            # Best-effort oldest-tx age — txs may or may not have a timestamp
+            tx_timestamps = [
+                float(getattr(tx, 'timestamp', 0) or 0) for tx in mp
+            ]
+            tx_timestamps = [t for t in tx_timestamps if t > 0]
+            if tx_timestamps:
+                oldest_age = int(time.time() - min(tx_timestamps))
+
+        # Persist state — snapshot, not a live read
+        p = n.metrics.persist
+
+        # Chain state summary — reuse the existing surface, no need to
+        # duplicate it. utxo_count is added because state_summary doesn't
+        # include it and it's a useful diagnostic.
+        chain_summary = n.chain.state_summary()
+        utxo_count = len(n.chain.utxos._utxos)
+
+        return {
+            'node': {
+                'uptime_s'   : int(uptime_s),
+                'p2p_port'   : n.p2p_port,
+                'rpc_port'   : n.rpc_port,
+                'peer_count' : int(n.network.status().get('peers', 0)),
+            },
+            'chain': {
+                'height'           : chain_summary['height'],
+                'blocks'           : chain_summary['blocks'],
+                'tip_hash'         : tip_hash,
+                'tip_timestamp'    : tip_timestamp,
+                'tip_miner'        : tip_miner,
+                'fork_count'       : len(tips),
+                'utxo_count'       : utxo_count,
+                'total_burned'     : chain_summary['total_burned'],
+                'dao_vault_oby'    : chain_summary['dao_vault_oby'],
+                'dao_vault_txs'    : chain_summary['dao_vault_txs'],
+                'founder_vested'   : chain_summary['founder_vested'],
+                'founder_locked'   : chain_summary['founder_locked'],
+                'difficulty'       : chain_summary['difficulty'],
+                'validators'       : chain_summary['validators'],
+            },
+            'mempool': {
+                'size'           : len(mp),
+                'total_fees'     : round(total_fees, 8),
+                'oldest_tx_age_s': oldest_age,
+            },
+            'persistence': {
+                'last_save_ts'         : p.last_save_ts,
+                'last_save_duration_ms': round(p.last_save_duration_ms, 2),
+                'save_count'           : p.save_count,
+                'save_failure_count'   : p.save_failure_count,
+                'last_failure_reason'  : p.last_failure_reason,
+                'chain_state_path'     : str(n.chain_state_path),
+            },
+            'counters': n.metrics.counters(),
+            'reorgs'  : n.metrics.reorgs(),
+        }
 
     def _peers(self):
         return self.node.network.status()
@@ -470,6 +605,12 @@ class FullNode:
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.started_at    = time.time()
 
+        # ── Observability ──
+        # Single source of truth for /health and /metrics. Counter increments
+        # land here from across the codebase (consensus, network, verification).
+        # /health reads persist + tip freshness via evaluate_health().
+        self.metrics = MetricsRegistry()
+
         # ── Wallet ──
         wallet_path = self.data_dir / 'wallet.json'
         if wallet_path.exists():
@@ -691,8 +832,21 @@ class FullNode:
             time.sleep(self.PERSIST_INTERVAL_S)
 
     def save_state(self):
-        """Snapshot chain + tokenomics to disk. Safe to call anytime."""
-        self.chain.save(str(self.chain_state_path))
+        """Snapshot chain + tokenomics to disk. Safe to call anytime.
+
+        Records timing and success/failure into MetricsRegistry so /health
+        and /metrics can report on the persist loop's health. The chain
+        save is the one we track for health — tokenomics save failure is
+        logged but doesn't flip /health to unhealthy, because the chain
+        is the consensus-critical state."""
+        start = time.time()
+        try:
+            self.chain.save(str(self.chain_state_path))
+        except Exception as e:
+            self.metrics.record_save_failure(f'chain_save: {e}')
+            raise
+        duration_ms = (time.time() - start) * 1000.0
+        self.metrics.record_save_success(duration_ms)
         try:
             self.tokenomics.save(str(self.tokenomics_state_path))
         except Exception as e:
