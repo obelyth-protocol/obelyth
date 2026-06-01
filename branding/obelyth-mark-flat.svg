@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">Obelyth Flat Mark</title>
+  <desc id="desc">A flat, exchange-friendly crypto logo with a gold O-ring, obelisk, and purple compute diamond.</desc>
+  <rect width="512" height="512" rx="96" fill="#080A12"/>
+  <circle cx="256" cy="256" r="150" fill="none" stroke="#B8922E" stroke-width="36"/>
+  <path d="M370 150a150 150 0 0 1 42 98" fill="none" stroke="#E9C85D" stroke-width="18" stroke-linecap="round"/>
+  <path d="M256 60 286 168v176l-30 108-30-108V168Z" fill="#B8922E"/>
+  <path d="M256 60v392l-30-108V168Z" fill="#6B5019"/>
+  <path d="M256 60v392l30-108V168Z" fill="#D8B54D"/>
+  <path d="M256 180 320 256 256 332 192 256Z" fill="#4A238A"/>
+  <path d="M256 212 294 256 256 300 218 256Z" fill="#A35BFF"/>
+  <circle cx="256" cy="256" r="12" fill="#FFFFFF"/>
+</svg>

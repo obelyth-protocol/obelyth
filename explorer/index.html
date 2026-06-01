@@ -1,0 +1,796 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Obelyth Explorer</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA1MTIgNTEyIiByb2xlPSJpbWciIGFyaWEtbGFiZWxsZWRieT0idGl0bGUgZGVzYyI+CiAgPHRpdGxlIGlkPSJ0aXRsZSI+T2JlbHl0aCBFeGNoYW5nZSBJY29uPC90aXRsZT4KICA8ZGVzYyBpZD0iZGVzYyI+QSBtaW5pbWFsIGNyeXB0byBleGNoYW5nZSBpY29uIHVzaW5nIGEgZ29sZCBPLCBjZW50cmFsIG9iZWxpc2ssIGFuZCBwdXJwbGUgY29yZS48L2Rlc2M+CiAgPHJlY3Qgd2lkdGg9IjUxMiIgaGVpZ2h0PSI1MTIiIHJ4PSIxMjgiIGZpbGw9IiMwOTBCMTMiLz4KICA8cGF0aCBkPSJNMjU2IDk2YTE2MCAxNjAgMCAxIDEgMCAzMjAgMTYwIDE2MCAwIDAgMSAwLTMyMFptMCAzOGExMjIgMTIyIDAgMSAwIDAgMjQ0IDEyMiAxMjIgMCAwIDAgMC0yNDRaIiBmaWxsPSIjQjg5MjJFIi8+CiAgPHBhdGggZD0iTTI1NiA3MiAyODYgMTc2djE2MEwyNTYgNDQwIDIyNiAzMzZWMTc2WiIgZmlsbD0iI0Q2QjE0OSIvPgogIDxwYXRoIGQ9Ik0yNTYgNzJ2MzY4bC0zMC0xMDRWMTc2WiIgZmlsbD0iIzgwNjExRSIvPgogIDxwYXRoIGQ9Ik0yNTYgNzJ2MzY4bDMwLTEwNFYxNzZaIiBmaWxsPSIjRjFDQjYyIi8+CiAgPHBhdGggZD0iTTI1NiAxOTAgMzE2IDI1NiAyNTYgMzIyIDE5NiAyNTZaIiBmaWxsPSIjNzEzM0M4Ii8+CiAgPHBhdGggZD0iTTI1NiAyMjQgMjg0IDI1NiAyNTYgMjg4IDIyOCAyNTZaIiBmaWxsPSIjQzk5Q0ZGIi8+Cjwvc3ZnPgo=">
+<style>
+  :root {
+    --gold:     #C9A84C;
+    --gold-dim: #8B7330;
+    --purple:   #9B59D0;
+    --white:    #F0F4FF;
+    --midnight: #06080F;
+    --panel:    #0E1320;
+    --border:   #1E2436;
+    --muted:    #9098A8;
+    --dim:      #555968;
+    --err:      #FF6B7A;
+    --ok:       #5BD68A;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", sans-serif;
+    background: var(--midnight);
+    color: var(--white);
+    margin: 0;
+    min-height: 100vh;
+    padding: 0 0 4rem;
+  }
+  a {
+    color: var(--gold);
+    text-decoration: none;
+    cursor: pointer;
+  }
+  a:hover { text-decoration: underline; }
+
+  /* ── Header ───────────────────────────────────────────────────────────── */
+  header {
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    padding: 1rem 1.5rem;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 1rem;
+  }
+  header h1 {
+    margin: 0;
+    font-size: 1.15rem;
+    font-weight: 600;
+    letter-spacing: -.01em;
+    display: inline-flex;
+    align-items: center;
+    gap: .45rem;
+  }
+  header h1 .logo-mark {
+    width: 1.4em;
+    height: 1.4em;
+    object-fit: contain;
+    flex-shrink: 0;
+  }
+  header .nav-link {
+    color: var(--muted);
+    font-size: .85rem;
+    cursor: pointer;
+  }
+  header .nav-link:hover { color: var(--gold); }
+  header .search-form {
+    flex: 1;
+    min-width: 280px;
+    max-width: 520px;
+    margin-left: auto;
+    display: flex;
+    gap: .5rem;
+  }
+  header .search-form input {
+    flex: 1;
+    padding: .55rem .75rem;
+    background: var(--midnight);
+    color: var(--white);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: .85rem;
+    font-family: ui-monospace, "SF Mono", "Cascadia Code", monospace;
+  }
+  header .search-form input:focus {
+    outline: none;
+    border-color: var(--gold);
+  }
+  header .search-form button {
+    padding: .55rem 1rem;
+    background: var(--gold);
+    color: var(--midnight);
+    border: none;
+    border-radius: 6px;
+    font-size: .85rem;
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  /* ── Main layout ──────────────────────────────────────────────────────── */
+  main {
+    max-width: 1100px;
+    margin: 2rem auto 0;
+    padding: 0 1.5rem;
+  }
+  h2 {
+    margin: 0 0 1rem;
+    font-size: 1.2rem;
+    letter-spacing: -.01em;
+  }
+  h2 .sub {
+    font-weight: 400;
+    color: var(--muted);
+    font-size: .85rem;
+    margin-left: .5rem;
+  }
+
+  /* ── Stats grid (home view) ───────────────────────────────────────────── */
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: .75rem;
+    margin-bottom: 2rem;
+  }
+  .stat {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1rem;
+  }
+  .stat .lbl {
+    color: var(--muted);
+    font-size: .7rem;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+  }
+  .stat .val {
+    font-size: 1.4rem;
+    font-weight: 600;
+    margin-top: .25rem;
+    color: var(--gold);
+    font-variant-numeric: tabular-nums;
+  }
+  .stat .val.small { font-size: 1.05rem; font-family: ui-monospace, monospace; word-break: break-all; }
+  .stat .val.plain { color: var(--white); }
+
+  /* ── Tables ───────────────────────────────────────────────────────────── */
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+    margin-bottom: 1rem;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: .85rem;
+  }
+  th {
+    background: rgba(255, 255, 255, .02);
+    text-align: left;
+    padding: .65rem .85rem;
+    color: var(--muted);
+    font-weight: 500;
+    font-size: .7rem;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    border-bottom: 1px solid var(--border);
+  }
+  td {
+    padding: .65rem .85rem;
+    border-bottom: 1px solid var(--border);
+    font-family: ui-monospace, monospace;
+    font-size: .82rem;
+    word-break: break-all;
+  }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: rgba(201, 168, 76, .03); }
+  .truncate {
+    display: inline-block;
+    max-width: 12rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    vertical-align: middle;
+  }
+  .truncate-long { max-width: 24rem; }
+
+  .badge {
+    display: inline-block;
+    padding: .1rem .5rem;
+    background: rgba(155, 89, 208, .12);
+    color: var(--purple);
+    border-radius: 3px;
+    font-size: .7rem;
+    letter-spacing: .05em;
+    text-transform: uppercase;
+    font-family: -apple-system, "Inter", sans-serif;
+  }
+  .badge.pow { background: rgba(201, 168, 76, .12); color: var(--gold); }
+  .badge.pos { background: rgba(155, 89, 208, .12); color: var(--purple); }
+  .badge.coinbase { background: rgba(91, 214, 138, .12); color: var(--ok); }
+
+  .amt { font-variant-numeric: tabular-nums; }
+  .amt.pos { color: var(--ok); }
+  .amt.neg { color: var(--err); }
+
+  /* ── Detail views ─────────────────────────────────────────────────────── */
+  .detail-grid {
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    gap: .55rem 1.5rem;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.25rem 1.5rem;
+    margin-bottom: 1.5rem;
+  }
+  .detail-grid dt {
+    color: var(--muted);
+    font-size: .7rem;
+    text-transform: uppercase;
+    letter-spacing: .08em;
+    padding-top: .15rem;
+  }
+  .detail-grid dd {
+    margin: 0;
+    font-family: ui-monospace, monospace;
+    font-size: .85rem;
+    word-break: break-all;
+  }
+
+  .empty {
+    padding: 2rem;
+    text-align: center;
+    color: var(--muted);
+    font-size: .9rem;
+  }
+
+  .err-banner {
+    background: rgba(255, 107, 122, .08);
+    border: 1px solid rgba(255, 107, 122, .3);
+    color: var(--err);
+    border-radius: 6px;
+    padding: .75rem 1rem;
+    margin-bottom: 1rem;
+  }
+
+  .pagination {
+    display: flex;
+    justify-content: flex-end;
+    gap: .5rem;
+    margin-top: 1rem;
+  }
+  .pagination button {
+    background: var(--panel);
+    color: var(--white);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: .5rem 1rem;
+    font-size: .85rem;
+    cursor: pointer;
+  }
+  .pagination button:hover:not(:disabled) {
+    border-color: var(--gold);
+    color: var(--gold);
+  }
+  .pagination button:disabled { opacity: .4; cursor: not-allowed; }
+
+  /* ── Footer ───────────────────────────────────────────────────────────── */
+  footer {
+    margin-top: 3rem;
+    padding: 1rem 1.5rem;
+    text-align: center;
+    color: var(--dim);
+    font-size: .75rem;
+  }
+  .node-config {
+    color: var(--dim);
+    font-size: .75rem;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>
+  <svg class="logo-mark" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="e-oby-t e-oby-d">
+  <title id="e-oby-t">Obelyth</title>
+  <desc id="e-oby-d">Obelyth mark: gold obelisk piercing a gold ring with a purple compute core at the center. Transparent background, scales sharp from favicon size to hero.</desc>
+  <defs>
+    <linearGradient id="e-oby-gold" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#F6D46A"/>
+      <stop offset="0.48" stop-color="#B88A25"/>
+      <stop offset="1" stop-color="#6E5218"/>
+    </linearGradient>
+    <linearGradient id="e-oby-purple" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#B96DFF"/>
+      <stop offset="1" stop-color="#5B2AD1"/>
+    </linearGradient>
+  </defs>
+  <circle cx="256" cy="256" r="148" fill="none" stroke="url(#e-oby-gold)" stroke-width="34"/>
+  <path d="M360 150a148 148 0 0 1 42 104" fill="none" stroke="#F6D46A" stroke-width="18" stroke-linecap="round" opacity=".92"/>
+  <path d="M256 58 288 168v176L256 454 224 344V168Z" fill="url(#e-oby-gold)"/>
+  <path d="M256 58v396l-32-110V168Z" fill="#7B5B1C" opacity=".72"/>
+  <path d="M256 58v396l32-110V168Z" fill="#E5BB55" opacity=".9"/>
+  <path d="M256 58 272 168H240Z" fill="#FFE083" opacity=".9"/>
+  <path d="M256 174 326 256 256 338 186 256Z" fill="#1B102C"/>
+  <path d="M256 194 306 256 256 318 206 256Z" fill="url(#e-oby-purple)"/>
+  <path d="M256 224 282 256 256 288 230 256Z" fill="#D8B3FF" opacity=".95"/>
+  <circle cx="256" cy="256" r="10" fill="#FFFFFF"/>
+</svg>
+  Obelyth Explorer
+</h1>
+  <a class="nav-link" onclick="route('#home')">Home</a>
+  <a class="nav-link" onclick="route('#blocks')">Blocks</a>
+  <a class="nav-link" onclick="route('#mempool')">Mempool</a>
+  <div class="search-form">
+    <input id="search-input" placeholder="Search block hash, tx hash, or address…"
+           onkeydown="if(event.key==='Enter')search()">
+    <button onclick="search()">Search</button>
+  </div>
+</header>
+
+<main id="view">
+  <p class="empty">Loading…</p>
+</main>
+
+<footer>
+  <div class="node-config">
+    Node: <span id="node-url-display">—</span> · <a onclick="changeNode()">change</a>
+  </div>
+  <div style="margin-top: .5rem;">
+    Obelyth testnet · OBY has no monetary value · subject to change after legal review
+  </div>
+</footer>
+
+<script>
+// ────────────────────────────────────────────────────────────────────────────
+// Config & state
+// ────────────────────────────────────────────────────────────────────────────
+const state = {
+  nodeUrl: localStorage.getItem('obelyth_node_url') || 'http://127.0.0.1:8334',
+  beforeStack: [],   // for pagination — stack of "before" hashes we've passed
+};
+
+function changeNode() {
+  const u = prompt('Node RPC URL:', state.nodeUrl);
+  if (u && u.trim()) {
+    state.nodeUrl = u.trim().replace(/\/$/, '');
+    localStorage.setItem('obelyth_node_url', state.nodeUrl);
+    document.getElementById('node-url-display').textContent = state.nodeUrl;
+    refresh();
+  }
+}
+
+async function api(path) {
+  const r = await fetch(state.nodeUrl + path);
+  if (!r.ok) throw new Error(`HTTP ${r.status} on ${path}`);
+  return r.json();
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Rendering helpers
+// ────────────────────────────────────────────────────────────────────────────
+const $ = id => document.getElementById(id);
+const v = id => document.getElementById('view');
+const esc = s => String(s).replace(/[&<>"]/g, c =>
+  ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const trunc = (s, n=16) => !s ? '—' : s.length > n*2 ? s.slice(0, n) + '…' + s.slice(-6) : s;
+const tsAgo = ts => {
+  const diff = Date.now()/1000 - ts;
+  if (diff < 60) return `${Math.floor(diff)}s ago`;
+  if (diff < 3600) return `${Math.floor(diff/60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff/3600)}h ago`;
+  return `${Math.floor(diff/86400)}d ago`;
+};
+const fmtTs = ts => new Date(ts * 1000).toISOString().slice(0, 19).replace('T', ' ') + ' UTC';
+const fmtOby = n => Number(n).toLocaleString(undefined, { maximumFractionDigits: 8 });
+
+function linkBlock(h) {
+  if (!h) return '—';
+  return `<a onclick="route('#block/${h}')">${trunc(h)}</a>`;
+}
+function linkTx(h) {
+  if (!h) return '—';
+  return `<a onclick="route('#tx/${h}')">${trunc(h)}</a>`;
+}
+function linkAddr(a) {
+  if (!a) return '—';
+  return `<a onclick="route('#address/${a}')">${trunc(a, 12)}</a>`;
+}
+
+function errBanner(msg) {
+  return `<div class="err-banner">${esc(msg)}</div>`;
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Views
+// ────────────────────────────────────────────────────────────────────────────
+
+async function viewHome() {
+  v().innerHTML = `<p class="empty">Loading network status…</p>`;
+  let status, blocks, mempool;
+  try {
+    [status, blocks, mempool] = await Promise.all([
+      api('/status'),
+      api('/blocks?limit=10'),
+      api('/mempool'),
+    ]);
+  } catch (e) {
+    v().innerHTML = errBanner(`Could not reach node at ${state.nodeUrl}: ${e.message}`);
+    return;
+  }
+
+  v().innerHTML = `
+    <div class="stats">
+      <div class="stat">
+        <div class="lbl">Chain height</div>
+        <div class="val">${status.height}</div>
+      </div>
+      <div class="stat">
+        <div class="lbl">Total blocks</div>
+        <div class="val">${blocks.total_blocks}</div>
+      </div>
+      <div class="stat">
+        <div class="lbl">Mempool</div>
+        <div class="val">${mempool.count}</div>
+      </div>
+      <div class="stat">
+        <div class="lbl">Difficulty</div>
+        <div class="val">${status.difficulty}</div>
+      </div>
+      <div class="stat">
+        <div class="lbl">Validators</div>
+        <div class="val">${status.validators}</div>
+      </div>
+      <div class="stat">
+        <div class="lbl">DAO Vault (OBY)</div>
+        <div class="val plain">${fmtOby(status.dao_vault_oby)}</div>
+      </div>
+    </div>
+
+    <h2>Recent blocks <span class="sub">latest 10</span></h2>
+    ${renderBlockTable(blocks.blocks)}
+    <div class="pagination">
+      <a onclick="route('#blocks')" style="color: var(--gold); font-size:.85rem;">View all blocks →</a>
+    </div>
+  `;
+}
+
+function renderBlockTable(blocks) {
+  if (!blocks || !blocks.length) return `<div class="panel"><p class="empty">No blocks yet.</p></div>`;
+  return `<div class="panel"><table>
+    <thead><tr>
+      <th style="width: 5rem">Height</th>
+      <th>Hash</th>
+      <th>Miner</th>
+      <th style="width: 4rem">Txs</th>
+      <th style="width: 5rem">Type</th>
+      <th style="width: 8rem">Age</th>
+    </tr></thead>
+    <tbody>
+    ${blocks.map(b => `
+      <tr>
+        <td><a onclick="route('#block/${b.hash}')">#${b.height}</a></td>
+        <td>${linkBlock(b.hash)}</td>
+        <td>${linkAddr(b.miner)}</td>
+        <td>${b.tx_count}</td>
+        <td><span class="badge ${b.consensus.toLowerCase()}">${esc(b.consensus)}</span></td>
+        <td>${tsAgo(b.timestamp)}</td>
+      </tr>
+    `).join('')}
+    </tbody>
+  </table></div>`;
+}
+
+async function viewBlocks(before) {
+  v().innerHTML = `<p class="empty">Loading blocks…</p>`;
+  try {
+    const path = before ? `/blocks?limit=25&before=${before}` : '/blocks?limit=25';
+    const data = await api(path);
+    v().innerHTML = `
+      <h2>Blocks <span class="sub">page of ${data.count} · ${data.total_blocks} total · height ${data.chain_height}</span></h2>
+      ${renderBlockTable(data.blocks)}
+      <div class="pagination">
+        <button onclick="pageBlocksBack()" ${state.beforeStack.length === 0 ? 'disabled' : ''}>← Newer</button>
+        <button onclick="pageBlocksForward('${data.next_before || ''}')" ${!data.next_before ? 'disabled' : ''}>Older →</button>
+      </div>
+    `;
+  } catch (e) {
+    v().innerHTML = errBanner(e.message);
+  }
+}
+function pageBlocksForward(nextBefore) {
+  if (!nextBefore) return;
+  state.beforeStack.push(nextBefore);
+  viewBlocks(nextBefore);
+}
+function pageBlocksBack() {
+  state.beforeStack.pop();
+  const cur = state.beforeStack[state.beforeStack.length - 1];
+  viewBlocks(cur);
+}
+
+async function viewBlock(hash) {
+  v().innerHTML = `<p class="empty">Loading block ${trunc(hash)}…</p>`;
+  let block;
+  try {
+    // The POST /getblock endpoint returns the block by hash
+    const r = await fetch(state.nodeUrl + '/getblock', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ hash }),
+    });
+    block = await r.json();
+    if (block.error) throw new Error(block.error);
+  } catch (e) {
+    v().innerHTML = errBanner(`Could not load block: ${e.message}`);
+    return;
+  }
+  const h = block.header || block;   // tolerate either shape
+  v().innerHTML = `
+    <h2>Block #${h.height}</h2>
+    <dl class="detail-grid">
+      <dt>Hash</dt><dd>${esc(block.hash || h.hash)}</dd>
+      <dt>Height</dt><dd>${h.height}</dd>
+      <dt>Timestamp</dt><dd>${fmtTs(h.timestamp)} (${tsAgo(h.timestamp)})</dd>
+      <dt>Miner</dt><dd>${linkAddr(h.miner_address || h.miner)}</dd>
+      <dt>Consensus</dt><dd><span class="badge ${(h.consensus_type || 'pow').toLowerCase()}">${esc(h.consensus_type || 'pow')}</span></dd>
+      <dt>Difficulty</dt><dd>${h.difficulty}</dd>
+      <dt>Parents</dt><dd>${(h.parent_hashes || []).map(linkBlock).join(', ') || '—'}</dd>
+      <dt>Merkle root</dt><dd>${esc(h.merkle_root || '—')}</dd>
+      <dt>Nonce</dt><dd>${h.nonce}</dd>
+    </dl>
+
+    <h2>Transactions <span class="sub">${block.transactions ? block.transactions.length : 0}</span></h2>
+    ${renderTxTable(block.transactions || [])}
+  `;
+}
+
+function renderTxTable(txs) {
+  if (!txs.length) return `<div class="panel"><p class="empty">No transactions in this block.</p></div>`;
+  return `<div class="panel"><table>
+    <thead><tr>
+      <th>Hash</th>
+      <th style="width: 6rem">Type</th>
+      <th style="width: 5rem">Inputs</th>
+      <th style="width: 5rem">Outputs</th>
+      <th style="width: 6rem">Fee</th>
+    </tr></thead>
+    <tbody>
+    ${txs.map(tx => `
+      <tr>
+        <td>${linkTx(tx.hash)}</td>
+        <td><span class="badge ${tx.tx_type === 'coinbase' ? 'coinbase' : ''}">${esc(tx.tx_type)}</span></td>
+        <td>${tx.inputs.length}</td>
+        <td>${tx.outputs.length}</td>
+        <td>${fmtOby(tx.fee)}</td>
+      </tr>
+    `).join('')}
+    </tbody>
+  </table></div>`;
+}
+
+async function viewTx(hash) {
+  v().innerHTML = `<p class="empty">Looking up tx ${trunc(hash)}…</p>`;
+  let resp;
+  try {
+    resp = await api(`/tx?hash=${hash}`);
+  } catch (e) {
+    v().innerHTML = errBanner(e.message);
+    return;
+  }
+  if (!resp.found) {
+    v().innerHTML = errBanner(`Transaction ${hash} not found in chain or mempool.`);
+    return;
+  }
+  const tx = resp.tx;
+  const inSum = tx.inputs.reduce((a, _) => a, 0);    // input amounts aren't on the input obj — only outputs
+  const outSum = tx.outputs.reduce((a, o) => a + o.amount, 0);
+
+  v().innerHTML = `
+    <h2>Transaction <span class="sub">${trunc(hash, 8)}</span></h2>
+    <dl class="detail-grid">
+      <dt>Hash</dt><dd>${esc(tx.hash)}</dd>
+      <dt>Type</dt><dd><span class="badge ${tx.tx_type === 'coinbase' ? 'coinbase' : ''}">${esc(tx.tx_type)}</span></dd>
+      <dt>Location</dt><dd>
+        ${resp.location === 'mempool'
+          ? '<span class="badge">Mempool (pending)</span>'
+          : `Block #${resp.block_height} (${linkBlock(resp.block_hash)})`}
+      </dd>
+      <dt>Timestamp</dt><dd>${fmtTs(tx.timestamp)} (${tsAgo(tx.timestamp)})</dd>
+      <dt>Fee</dt><dd>${fmtOby(tx.fee)} OBY</dd>
+      ${tx.memo ? `<dt>Memo</dt><dd>${esc(tx.memo)}</dd>` : ''}
+      <dt>Total out</dt><dd class="amt">${fmtOby(outSum)} OBY across ${tx.outputs.length} output(s)</dd>
+    </dl>
+
+    <h2>Inputs <span class="sub">${tx.inputs.length}</span></h2>
+    ${tx.inputs.length === 0
+      ? '<div class="panel"><p class="empty">Coinbase / faucet — no inputs.</p></div>'
+      : `<div class="panel"><table>
+          <thead><tr>
+            <th>Spends UTXO</th>
+            <th>Public key</th>
+          </tr></thead>
+          <tbody>
+          ${tx.inputs.map(inp => `
+            <tr>
+              <td>${linkTx(inp.utxo_tx_hash)}<span style="color: var(--dim)">:${inp.utxo_index}</span></td>
+              <td><span class="truncate truncate-long">${esc(inp.public_key || '—')}</span></td>
+            </tr>
+          `).join('')}
+          </tbody>
+        </table></div>`}
+
+    <h2>Outputs <span class="sub">${tx.outputs.length}</span></h2>
+    <div class="panel"><table>
+      <thead><tr>
+        <th>To address</th>
+        <th style="width: 12rem">Amount (OBY)</th>
+      </tr></thead>
+      <tbody>
+      ${tx.outputs.map(out => `
+        <tr>
+          <td>${linkAddr(out.address)}</td>
+          <td class="amt pos">${fmtOby(out.amount)}</td>
+        </tr>
+      `).join('')}
+      </tbody>
+    </table></div>
+  `;
+}
+
+async function viewAddress(addr) {
+  v().innerHTML = `<p class="empty">Loading ${trunc(addr, 12)}…</p>`;
+  let data;
+  try {
+    data = await api(`/address?addr=${addr}&limit=100`);
+  } catch (e) {
+    v().innerHTML = errBanner(e.message);
+    return;
+  }
+  v().innerHTML = `
+    <h2>Address <span class="sub">${trunc(addr, 10)}</span></h2>
+    <dl class="detail-grid">
+      <dt>Address</dt><dd>${esc(addr)}</dd>
+      <dt>Balance</dt><dd class="amt pos">${fmtOby(data.balance)} OBY</dd>
+      <dt>Unspent outputs</dt><dd>${data.utxo_count}</dd>
+      <dt>Transactions</dt><dd>${data.tx_count} (showing latest ${data.history.length})</dd>
+    </dl>
+
+    <h2>Transaction history</h2>
+    ${data.history.length === 0
+      ? '<div class="panel"><p class="empty">No transactions involving this address yet.</p></div>'
+      : `<div class="panel"><table>
+          <thead><tr>
+            <th style="width: 4rem">Block</th>
+            <th>Tx hash</th>
+            <th style="width: 10rem">Type</th>
+            <th style="width: 10rem">Net</th>
+            <th style="width: 5rem">Fee</th>
+            <th style="width: 7rem">Age</th>
+          </tr></thead>
+          <tbody>
+          ${data.history.map(h => `
+            <tr>
+              <td><a onclick="route('#block/${h.block_hash}')">#${h.block_height}</a></td>
+              <td>${linkTx(h.tx_hash)}</td>
+              <td><span class="badge ${h.tx_type === 'coinbase' ? 'coinbase' : ''}">${esc(h.tx_type)}</span></td>
+              <td class="amt ${h.net > 0 ? 'pos' : h.net < 0 ? 'neg' : ''}">${h.net > 0 ? '+' : ''}${fmtOby(h.net)}</td>
+              <td>${h.fee ? fmtOby(h.fee) : '—'}</td>
+              <td>${tsAgo(h.timestamp)}</td>
+            </tr>
+          `).join('')}
+          </tbody>
+        </table></div>`}
+  `;
+}
+
+async function viewMempool() {
+  v().innerHTML = `<p class="empty">Loading mempool…</p>`;
+  try {
+    const data = await api('/mempool');
+    v().innerHTML = `
+      <h2>Mempool <span class="sub">${data.count} pending</span></h2>
+      ${data.txs.length === 0
+        ? '<div class="panel"><p class="empty">No pending transactions. The next block will contain only coinbase.</p></div>'
+        : renderTxTable(data.txs)}
+    `;
+  } catch (e) {
+    v().innerHTML = errBanner(e.message);
+  }
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Search
+// ────────────────────────────────────────────────────────────────────────────
+async function search() {
+  const q = $('search-input').value.trim();
+  if (!q) return;
+
+  // Heuristics:
+  // - 64 hex chars (32 bytes) → block or tx hash. Try block first via getblock,
+  //   then tx via /tx.
+  // - Starts with H/N and 25-40 chars → address.
+  // - Pure digit → block height (resolve via /blocks)
+
+  if (/^[0-9a-fA-F]{64}$/.test(q)) {
+    // Try block
+    try {
+      const r = await fetch(state.nodeUrl + '/getblock', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ hash: q }),
+      });
+      const block = await r.json();
+      if (!block.error) {
+        route('#block/' + q);
+        return;
+      }
+    } catch (e) { /* fall through */ }
+    // Try tx
+    try {
+      const t = await api(`/tx?hash=${q}`);
+      if (t.found) {
+        route('#tx/' + q);
+        return;
+      }
+    } catch (e) { /* fall through */ }
+    v().innerHTML = errBanner(`No block or transaction found with hash ${q}`);
+    return;
+  }
+
+  if (/^[HN][a-zA-Z0-9]{25,50}$/.test(q)) {
+    route('#address/' + q);
+    return;
+  }
+
+  if (/^\d+$/.test(q)) {
+    // Height search — not super efficient (we'd need a height index), but
+    // we can walk /blocks until we find it. For now, just tell the user.
+    v().innerHTML = errBanner('Height search not yet supported. Search by hash or address.');
+    return;
+  }
+
+  v().innerHTML = errBanner(`Could not parse "${esc(q)}" as a hash or address.`);
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Routing
+// ────────────────────────────────────────────────────────────────────────────
+function route(hash) {
+  if (window.location.hash !== hash) {
+    window.location.hash = hash;
+  } else {
+    refresh();
+  }
+}
+
+function refresh() {
+  const h = window.location.hash || '#home';
+  if (h === '#home' || h === '') return viewHome();
+  if (h === '#blocks') {
+    state.beforeStack = [];
+    return viewBlocks();
+  }
+  if (h === '#mempool') return viewMempool();
+  const m1 = h.match(/^#block\/(.+)$/);  if (m1) return viewBlock(m1[1]);
+  const m2 = h.match(/^#tx\/(.+)$/);     if (m2) return viewTx(m2[1]);
+  const m3 = h.match(/^#address\/(.+)$/);if (m3) return viewAddress(m3[1]);
+  v().innerHTML = errBanner(`Unknown route: ${h}`);
+}
+
+window.addEventListener('hashchange', refresh);
+window.route = route;
+window.search = search;
+window.changeNode = changeNode;
+window.pageBlocksBack = pageBlocksBack;
+window.pageBlocksForward = pageBlocksForward;
+
+// ── Boot ────────────────────────────────────────────────────────────────────
+$('node-url-display').textContent = state.nodeUrl;
+if (!window.location.hash) window.location.hash = '#home';
+refresh();
+
+// Light auto-refresh of home/blocks views every 15s for a "live" feel
+setInterval(() => {
+  const h = window.location.hash;
+  if (h === '#home' || h === '' || h === '#mempool') refresh();
+}, 15000);
+</script>
+</body>
+</html>

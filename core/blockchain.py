@@ -740,3 +740,103 @@ class Blockchain:
             },
             'tips'            : [t.hash[:16] for t in self.dag.tips()],
         }
+
+    # ── Persistence ──────────────────────────────────────────────────────────
+    def save(self, path: str):
+        """Serialize full chain state to a JSON file (atomic write).
+
+        Persists everything needed to resume after a restart: all DAG blocks,
+        the UTXO set, validators, mempool, and scalar fields. The DAGChain's
+        _children map is NOT persisted — it's rebuilt from block parent_hashes
+        on load. Vesting is deterministic from founder_address + genesis time
+        so it's reconstructed, not stored.
+        """
+        import os, tempfile
+        with self._mempool_lock:
+            state = {
+                'version'      : 1,
+                'blocks'       : [b.to_dict() for b in self.dag.all_blocks()],
+                'utxos'        : self.utxos.snapshot(),
+                'validators'   : self.validators.all(),
+                'mempool'      : [t.to_dict() for t in self.mempool],
+                'difficulty'   : self.difficulty,
+                'block_size'   : self.block_size,
+                'total_burned' : self.total_burned,
+                'dao_vault_oby': self.dao_vault_oby,
+                'dao_vault_txs': self.dao_vault_txs,
+                'founder_address': self.founder_address,
+                'dao_address'  : self.dao_address,
+                'vesting_genesis_ts': self.vesting.genesis_timestamp,
+            }
+        # Atomic write: write to a temp file in the same dir, then rename.
+        # Prevents a half-written snapshot if the process dies mid-save.
+        d = os.path.dirname(os.path.abspath(path))
+        os.makedirs(d, exist_ok=True)
+        fd, tmp = tempfile.mkstemp(dir=d, suffix='.tmp')
+        try:
+            with os.fdopen(fd, 'w') as f:
+                json.dump(state, f)
+            os.replace(tmp, path)
+        except Exception:
+            try: os.unlink(tmp)
+            except OSError: pass
+            raise
+        log.info(f"Chain saved: {len(state['blocks'])} blocks, "
+                 f"{len(state['utxos'])} utxos → {path}")
+
+    def load(self, path: str) -> bool:
+        """Restore chain state from a snapshot. Returns True if loaded.
+
+        Rebuilds the DAGChain (blocks + children), UTXO set, validators,
+        mempool, and scalars. Vesting is reconstructed from the persisted
+        genesis timestamp so vested/locked math stays correct across restarts.
+        Returns False if the file doesn't exist (caller should keep genesis).
+        """
+        import os
+        if not os.path.exists(path):
+            return False
+        with open(path) as f:
+            state = json.load(f)
+
+        from core.structures import Block, Transaction
+
+        with self._mempool_lock:
+            # Rebuild DAG from scratch — add() repopulates _children from
+            # each block's parent_hashes, so the frontier (tips) is correct.
+            self.dag = DAGChain()
+            # Add in height order so parents land before children
+            blocks = [Block.from_dict(b) for b in state['blocks']]
+            blocks.sort(key=lambda b: b.header.height)
+            for b in blocks:
+                self.dag.add(b)
+
+            self.utxos = UTXOSet()
+            self.utxos.load(state['utxos'])
+
+            self.validators = ValidatorSet()
+            for addr, stake in state.get('validators', {}).items():
+                self.validators._validators[addr] = stake
+
+            self.mempool = [Transaction.from_dict(t)
+                            for t in state.get('mempool', [])]
+
+            self.difficulty   = state.get('difficulty', self.difficulty)
+            self.block_size   = state.get('block_size', self.block_size)
+            self.total_burned = state.get('total_burned', 0.0)
+            self.dao_vault_oby= state.get('dao_vault_oby', 0.0)
+            self.dao_vault_txs= state.get('dao_vault_txs', 0)
+            self.founder_address = state.get('founder_address', self.founder_address)
+            self.dao_address     = state.get('dao_address', self.dao_address)
+
+            # Reconstruct vesting with the original genesis timestamp
+            gts = state.get('vesting_genesis_ts')
+            if gts:
+                self.vesting = VestingSchedule(
+                    founder_address = self.founder_address,
+                    total_oby       = FOUNDER_TOTAL,
+                    cliff_months    = 12,
+                    total_months    = 48,
+                    genesis_timestamp = gts,
+                )
+        log.info(f"Chain loaded: {len(self.dag)} blocks, height={self.dag.height()}")
+        return True

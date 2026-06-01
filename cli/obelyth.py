@@ -94,24 +94,70 @@ def cmd_send(args):
         print(f"[error] Wallet not found: {wallet_path}")
         sys.exit(1)
 
-    # Load wallet & query UTXOs via node
+    from core.structures import UTXO
+
     wallet = Wallet.load(wallet_path)
+    amount = float(args.amount)
+    fee    = float(args.fee)
+
     print(f"  From: {wallet.primary_address}")
     print(f"  To  : {args.to}")
-    print(f"  Amt : {args.amount} OBY  fee={args.fee}")
+    print(f"  Amt : {amount} OBY  fee={fee}")
 
-    # We need the UTXO set from the node — in production, the node exposes
-    # /utxos?addr=... ; for now we build a lightweight local UTXO set
+    # Fetch unspent UTXOs for every address this wallet controls
     print("[info] Fetching UTXOs from node...")
-    # (In a full implementation, GET /utxos?addr=... returns the UTXO set)
-    # For this CLI demo, we call mine a tx via RPC directly
-    r = rpc_post('/sendtx', {
-        'tx': {
-            # Simplified: in full impl, build & sign locally then post raw tx
-            'note': 'Use the Python wallet.build_transaction() + post to /sendtx'
-        }
-    }, args.rpc)
-    print(f"  Result: {r}")
+    all_utxos = []
+    for addr in wallet.all_addresses:
+        resp = rpc_get(f'/utxos?addr={addr}', args.rpc)
+        for u in resp.get('utxos', []):
+            all_utxos.append(UTXO(
+                tx_hash = u['tx_hash'],
+                index   = u['index'],
+                address = u['address'],
+                amount  = u['amount'],
+            ))
+
+    if not all_utxos:
+        print("[error] No spendable UTXOs — wallet balance is zero.")
+        sys.exit(1)
+
+    # Build a lightweight UTXO set the wallet's build_transaction can consume.
+    # It only needs unspent_for(addr) and balance(addr).
+    class _LiteUTXOSet:
+        def __init__(self, utxos):
+            self._u = utxos
+        def unspent_for(self, address):
+            return [x for x in self._u if x.address == address]
+        def balance(self, address):
+            return round(sum(x.amount for x in self._u
+                             if x.address == address), 8)
+
+    lite = _LiteUTXOSet(all_utxos)
+
+    tx = wallet.build_transaction(
+        utxo_set   = lite,
+        to_address = args.to,
+        amount     = amount,
+        fee        = fee,
+        memo       = args.memo or '',
+    )
+    if tx is None:
+        print("[error] Could not build transaction (insufficient funds).")
+        sys.exit(1)
+
+    print(f"[info] Built tx {tx.hash[:16]}... ({len(tx.inputs)} inputs, "
+          f"{len(tx.outputs)} outputs)")
+
+    r = rpc_post('/sendtx', {'tx': tx.to_dict()}, args.rpc)
+    if r.get('error'):
+        print(f"[error] Node rejected tx: {r['error']}")
+        sys.exit(1)
+    if r.get('accepted'):
+        print(f"  ✓ Accepted. tx hash: {r['hash']}")
+        print(f"  Mine a block (python -m cli.obelyth mine) or wait for "
+              f"auto-mining to confirm.")
+    else:
+        print(f"  ✗ Not accepted: {r}")
 
 
 def cmd_mine(args):
@@ -227,6 +273,7 @@ def main():
     snd.add_argument('--to',     '-t', required=True)
     snd.add_argument('--amount', '-v', type=float, required=True)
     snd.add_argument('--fee',          type=float, default=0.001)
+    snd.add_argument('--memo',         type=str, default='')
     snd.add_argument('--zk',           action='store_true')
 
     mn = sub.add_parser('mine')

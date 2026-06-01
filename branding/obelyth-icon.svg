@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">Obelyth Exchange Icon</title>
+  <desc id="desc">A minimal crypto exchange icon using a gold O, central obelisk, and purple core.</desc>
+  <rect width="512" height="512" rx="128" fill="#090B13"/>
+  <path d="M256 96a160 160 0 1 1 0 320 160 160 0 0 1 0-320Zm0 38a122 122 0 1 0 0 244 122 122 0 0 0 0-244Z" fill="#B8922E"/>
+  <path d="M256 72 286 176v160L256 440 226 336V176Z" fill="#D6B149"/>
+  <path d="M256 72v368l-30-104V176Z" fill="#80611E"/>
+  <path d="M256 72v368l30-104V176Z" fill="#F1CB62"/>
+  <path d="M256 190 316 256 256 322 196 256Z" fill="#7133C8"/>
+  <path d="M256 224 284 256 256 288 228 256Z" fill="#C99CFF"/>
+</svg>

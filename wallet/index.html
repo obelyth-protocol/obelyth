@@ -1,0 +1,833 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Obelyth Wallet</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA1MTIgNTEyIiByb2xlPSJpbWciIGFyaWEtbGFiZWxsZWRieT0idGl0bGUgZGVzYyI+CiAgPHRpdGxlIGlkPSJ0aXRsZSI+T2JlbHl0aCBFeGNoYW5nZSBJY29uPC90aXRsZT4KICA8ZGVzYyBpZD0iZGVzYyI+QSBtaW5pbWFsIGNyeXB0byBleGNoYW5nZSBpY29uIHVzaW5nIGEgZ29sZCBPLCBjZW50cmFsIG9iZWxpc2ssIGFuZCBwdXJwbGUgY29yZS48L2Rlc2M+CiAgPHJlY3Qgd2lkdGg9IjUxMiIgaGVpZ2h0PSI1MTIiIHJ4PSIxMjgiIGZpbGw9IiMwOTBCMTMiLz4KICA8cGF0aCBkPSJNMjU2IDk2YTE2MCAxNjAgMCAxIDEgMCAzMjAgMTYwIDE2MCAwIDAgMSAwLTMyMFptMCAzOGExMjIgMTIyIDAgMSAwIDAgMjQ0IDEyMiAxMjIgMCAwIDAgMC0yNDRaIiBmaWxsPSIjQjg5MjJFIi8+CiAgPHBhdGggZD0iTTI1NiA3MiAyODYgMTc2djE2MEwyNTYgNDQwIDIyNiAzMzZWMTc2WiIgZmlsbD0iI0Q2QjE0OSIvPgogIDxwYXRoIGQ9Ik0yNTYgNzJ2MzY4bC0zMC0xMDRWMTc2WiIgZmlsbD0iIzgwNjExRSIvPgogIDxwYXRoIGQ9Ik0yNTYgNzJ2MzY4bDMwLTEwNFYxNzZaIiBmaWxsPSIjRjFDQjYyIi8+CiAgPHBhdGggZD0iTTI1NiAxOTAgMzE2IDI1NiAyNTYgMzIyIDE5NiAyNTZaIiBmaWxsPSIjNzEzM0M4Ii8+CiAgPHBhdGggZD0iTTI1NiAyMjQgMjg0IDI1NiAyNTYgMjg4IDIyOCAyNTZaIiBmaWxsPSIjQzk5Q0ZGIi8+Cjwvc3ZnPgo=">
+<style>
+  :root {
+    --gold:     #C9A84C;
+    --purple:   #9B59D0;
+    --white:    #F0F4FF;
+    --midnight: #06080F;
+    --panel:    #0E1320;
+    --border:   #1E2436;
+    --muted:    #9098A8;
+    --dim:      #555968;
+    --err:      #FF6B7A;
+    --ok:       #5BD68A;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", sans-serif;
+    background: var(--midnight);
+    color: var(--white);
+    margin: 0;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 3rem 1.5rem;
+  }
+  h1 {
+    font-size: 1.75rem;
+    margin: 0 0 .25rem;
+    letter-spacing: -.02em;
+    display: inline-flex;
+    align-items: center;
+    gap: .5rem;
+  }
+  .logo-mark {
+    width: 1.4em;
+    height: 1.4em;
+    object-fit: contain;
+    /* Logo is a tall portrait — let it center vertically next to text */
+    flex-shrink: 0;
+  }
+  h2 {
+    font-size: 1.05rem;
+    margin: 0 0 1rem;
+    letter-spacing: -.01em;
+  }
+  p.tagline {
+    color: var(--muted);
+    margin: 0 0 2rem;
+    font-size: .95rem;
+  }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 1.5rem;
+    width: 100%;
+    max-width: 520px;
+    margin-bottom: 1rem;
+  }
+  label {
+    display: block;
+    font-size: .75rem;
+    font-weight: 600;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin: .75rem 0 .35rem;
+  }
+  input, textarea {
+    width: 100%;
+    padding: .65rem .75rem;
+    background: var(--midnight);
+    color: var(--white);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: .9rem;
+    font-family: ui-monospace, "SF Mono", "Cascadia Code", monospace;
+  }
+  input:focus, textarea:focus {
+    outline: none;
+    border-color: var(--gold);
+  }
+  textarea {
+    min-height: 80px;
+    resize: vertical;
+    word-break: break-all;
+  }
+  button {
+    padding: .65rem 1rem;
+    background: var(--gold);
+    color: var(--midnight);
+    border: none;
+    border-radius: 6px;
+    font-size: .9rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: opacity .12s;
+    margin-right: .5rem;
+    margin-top: .5rem;
+  }
+  button:hover:not(:disabled) { opacity: .9; }
+  button:disabled { opacity: .4; cursor: not-allowed; }
+  button.secondary {
+    background: transparent;
+    color: var(--white);
+    border: 1px solid var(--border);
+  }
+  button.secondary:hover:not(:disabled) {
+    border-color: var(--gold);
+    color: var(--gold);
+  }
+  button.danger {
+    background: transparent;
+    color: var(--err);
+    border: 1px solid var(--err);
+  }
+  .row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .5rem;
+    margin-top: 1rem;
+  }
+  .row button { margin: 0; }
+  .balance {
+    text-align: center;
+    margin: 1rem 0;
+  }
+  .balance .num {
+    display: block;
+    font-size: 2.5rem;
+    font-weight: 600;
+    color: var(--gold);
+    letter-spacing: -.02em;
+  }
+  .balance .lbl {
+    display: block;
+    color: var(--muted);
+    font-size: .75rem;
+    text-transform: uppercase;
+    letter-spacing: .08em;
+    margin-top: .25rem;
+  }
+  .addr {
+    font-family: ui-monospace, "SF Mono", "Cascadia Code", monospace;
+    font-size: .8rem;
+    background: var(--midnight);
+    padding: .5rem .75rem;
+    border-radius: 4px;
+    word-break: break-all;
+    border: 1px solid var(--border);
+  }
+  .msg {
+    padding: .75rem .9rem;
+    border-radius: 6px;
+    font-size: .85rem;
+    line-height: 1.4;
+    margin: 1rem 0;
+    display: none;
+  }
+  .msg.show { display: block; }
+  .msg.ok  { background: rgba(91, 214, 138, .08); border: 1px solid rgba(91, 214, 138, .3); color: var(--ok); }
+  .msg.err { background: rgba(255, 107, 122, .08); border: 1px solid rgba(255, 107, 122, .3); color: var(--err); }
+  .msg code {
+    display: block;
+    margin-top: .35rem;
+    font-size: .75rem;
+    word-break: break-all;
+    color: var(--white);
+  }
+  .hidden { display: none !important; }
+  .node-config {
+    font-size: .75rem;
+    color: var(--dim);
+    margin-top: 1rem;
+    text-align: center;
+  }
+  .node-config a {
+    color: var(--gold);
+    text-decoration: none;
+    cursor: pointer;
+  }
+  .node-config a:hover { text-decoration: underline; }
+  .footer {
+    margin-top: 2rem;
+    font-size: .75rem;
+    color: var(--dim);
+    text-align: center;
+    max-width: 520px;
+  }
+  details {
+    margin-top: 1rem;
+    font-size: .85rem;
+  }
+  details summary {
+    cursor: pointer;
+    color: var(--muted);
+    user-select: none;
+  }
+  details summary:hover { color: var(--gold); }
+  .key-display {
+    margin-top: .75rem;
+    padding: .75rem;
+    background: var(--midnight);
+    border: 1px solid var(--err);
+    border-radius: 4px;
+    font-family: ui-monospace, monospace;
+    font-size: .75rem;
+    word-break: break-all;
+    color: var(--err);
+  }
+</style>
+</head>
+<body>
+
+<h1>
+  <svg class="logo-mark" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="w-oby-t w-oby-d">
+  <title id="w-oby-t">Obelyth</title>
+  <desc id="w-oby-d">Obelyth mark: gold obelisk piercing a gold ring with a purple compute core at the center. Transparent background, scales sharp from favicon size to hero.</desc>
+  <defs>
+    <linearGradient id="w-oby-gold" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#F6D46A"/>
+      <stop offset="0.48" stop-color="#B88A25"/>
+      <stop offset="1" stop-color="#6E5218"/>
+    </linearGradient>
+    <linearGradient id="w-oby-purple" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#B96DFF"/>
+      <stop offset="1" stop-color="#5B2AD1"/>
+    </linearGradient>
+  </defs>
+  <circle cx="256" cy="256" r="148" fill="none" stroke="url(#w-oby-gold)" stroke-width="34"/>
+  <path d="M360 150a148 148 0 0 1 42 104" fill="none" stroke="#F6D46A" stroke-width="18" stroke-linecap="round" opacity=".92"/>
+  <path d="M256 58 288 168v176L256 454 224 344V168Z" fill="url(#w-oby-gold)"/>
+  <path d="M256 58v396l-32-110V168Z" fill="#7B5B1C" opacity=".72"/>
+  <path d="M256 58v396l32-110V168Z" fill="#E5BB55" opacity=".9"/>
+  <path d="M256 58 272 168H240Z" fill="#FFE083" opacity=".9"/>
+  <path d="M256 174 326 256 256 338 186 256Z" fill="#1B102C"/>
+  <path d="M256 194 306 256 256 318 206 256Z" fill="url(#w-oby-purple)"/>
+  <path d="M256 224 282 256 256 288 230 256Z" fill="#D8B3FF" opacity=".95"/>
+  <circle cx="256" cy="256" r="10" fill="#FFFFFF"/>
+</svg>
+  Obelyth Wallet
+</h1>
+<p class="tagline">Hold and send testnet OBY. Keys stay in your browser.</p>
+
+<!-- ── State 1: No wallet yet ─────────────────────────────────────────────── -->
+<div id="screen-init" class="card">
+  <h2>Get started</h2>
+  <p style="color: var(--muted); font-size: .9rem; margin: 0 0 1rem;">
+    Create a new wallet or restore an existing one from its private key.
+  </p>
+  <button onclick="ui.createNew()">Create new wallet</button>
+  <button class="secondary" onclick="ui.showImport()">Import private key</button>
+
+  <div id="import-section" class="hidden" style="margin-top: 1rem;">
+    <label for="import-key">Private key (hex)</label>
+    <textarea id="import-key" placeholder="Paste 64-character hex private key"></textarea>
+    <label for="import-pw">Password (encrypts the key locally)</label>
+    <input type="password" id="import-pw" placeholder="Choose a password">
+    <div class="row">
+      <button onclick="ui.doImport()">Import</button>
+      <button class="secondary" onclick="ui.hideImport()">Cancel</button>
+    </div>
+  </div>
+
+  <div id="create-section" class="hidden" style="margin-top: 1rem;">
+    <label for="create-pw">Password (encrypts the key locally)</label>
+    <input type="password" id="create-pw" placeholder="Choose a password">
+    <label for="create-pw2">Confirm password</label>
+    <input type="password" id="create-pw2" placeholder="Repeat the password">
+    <div class="row">
+      <button onclick="ui.doCreate()">Create wallet</button>
+      <button class="secondary" onclick="ui.hideCreate()">Cancel</button>
+    </div>
+  </div>
+
+  <div id="init-msg" class="msg"></div>
+</div>
+
+<!-- ── State 2: Locked (have a wallet, need password) ─────────────────────── -->
+<div id="screen-locked" class="card hidden">
+  <h2>Unlock your wallet</h2>
+  <p style="color: var(--muted); font-size: .9rem; margin: 0 0 1rem;">
+    Enter your password to decrypt the key stored in this browser.
+  </p>
+  <input type="password" id="unlock-pw" placeholder="Password" onkeydown="if(event.key==='Enter')ui.unlock()">
+  <div class="row">
+    <button onclick="ui.unlock()">Unlock</button>
+    <button class="danger" onclick="ui.forgetWallet()">Forget this wallet</button>
+  </div>
+  <div id="unlock-msg" class="msg"></div>
+</div>
+
+<!-- ── State 3: Unlocked ──────────────────────────────────────────────────── -->
+<div id="screen-main" class="card hidden">
+  <h2>Your wallet</h2>
+
+  <label>Address</label>
+  <div class="addr" id="addr-display">—</div>
+
+  <div class="balance">
+    <span class="num" id="balance-num">—</span>
+    <span class="lbl">OBY · testnet</span>
+  </div>
+
+  <button class="secondary" onclick="ui.refreshBalance()">Refresh balance</button>
+  <button class="secondary" onclick="ui.lock()">Lock</button>
+
+  <details>
+    <summary>Export private key</summary>
+    <p style="color: var(--muted); font-size: .8rem; margin-top: .5rem;">
+      Anyone with this key can spend your OBY. Never share it. Never paste it into
+      a site you don't trust.
+    </p>
+    <button class="danger" onclick="ui.exportKey()">Reveal private key</button>
+    <div id="exported-key" class="key-display hidden"></div>
+  </details>
+</div>
+
+<!-- ── State 3b: Send form (visible when unlocked) ─────────────────────────── -->
+<div id="screen-send" class="card hidden">
+  <h2>Send OBY</h2>
+  <label for="send-to">Recipient address</label>
+  <input id="send-to" placeholder="H... or N...">
+  <label for="send-amount">Amount</label>
+  <input id="send-amount" type="number" min="0" step="0.0001" placeholder="0.0">
+  <label for="send-memo">Memo (optional)</label>
+  <input id="send-memo" placeholder="">
+  <p style="color: var(--muted); font-size: .75rem; margin: .5rem 0 0;">
+    Fee: 0.001 OBY · transaction is broadcast to the connected node
+  </p>
+  <div class="row">
+    <button id="send-btn" onclick="ui.send()">Send transaction</button>
+  </div>
+  <div id="send-msg" class="msg"></div>
+</div>
+
+<div class="node-config" id="node-config-bar">
+  Node: <span id="node-url-display">—</span>
+  · <a onclick="ui.changeNode()">change</a>
+</div>
+
+<div class="footer">
+  Testnet OBY has no monetary value. Subject to change after legal review.<br>
+  Wallet code at <a href="https://github.com/obelyth-protocol/obelyth" style="color: var(--gold);">github.com/obelyth-protocol/obelyth</a>
+</div>
+
+<script type="module">
+// ────────────────────────────────────────────────────────────────────────────
+// Cryptographic primitives
+// ────────────────────────────────────────────────────────────────────────────
+// We use the @noble libraries (paulmillr.com/noble/):
+//   - secp256k1 for signing
+//   - hashes for SHA3-256 and RIPEMD160 (browsers don't have these natively)
+// These are audited, dependency-free, and produce byte-identical output to
+// the Python reference implementation in core/crypto.py.
+
+import { secp256k1 } from 'https://esm.sh/@noble/curves@1.4.0/secp256k1';
+import { sha3_256 } from 'https://esm.sh/@noble/hashes@1.4.0/sha3';
+import { ripemd160 } from 'https://esm.sh/@noble/hashes@1.4.0/ripemd160';
+
+// noble-curves bundles its own hmac/rng wiring, so unlike bare
+// noble-secp256k1 v2 we don't need to inject hmacSha256Sync manually.
+// The secp256k1 object exposes getPublicKey, sign, verify, and the
+// Signature class with toDERRawBytes() — which is what the Python
+// `cryptography` verifier expects (it uses DER-encoded ECDSA sigs).
+
+// Address derivation: SHA3-256 → RIPEMD160 → version byte → base58check
+// Must match core/crypto.py exactly.
+const ADDRESS_VER = 0x28;   // version byte → addresses start with H/N (we see H in genesis)
+const BASE58_ALPHA = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+
+function hex(bytes) {
+  return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+function fromHex(s) {
+  if (s.length % 2) throw new Error('odd hex length');
+  const out = new Uint8Array(s.length / 2);
+  for (let i = 0; i < out.length; i++)
+    out[i] = parseInt(s.substr(i * 2, 2), 16);
+  return out;
+}
+function utf8(s) { return new TextEncoder().encode(s); }
+
+function hash160(data) {
+  return ripemd160(sha3_256(data));
+}
+function doubleSha3(data) {
+  return sha3_256(sha3_256(data));
+}
+
+function base58Encode(data) {
+  // Convert bytes to bigint, then to base58 digits
+  let n = 0n;
+  for (const b of data) n = (n << 8n) | BigInt(b);
+  const digits = [];
+  while (n > 0n) {
+    digits.push(BASE58_ALPHA[Number(n % 58n)]);
+    n = n / 58n;
+  }
+  // Leading zero bytes become leading '1's
+  for (const b of data) {
+    if (b === 0) digits.push(BASE58_ALPHA[0]);
+    else break;
+  }
+  return digits.reverse().join('');
+}
+
+function base58checkEncode(payload) {
+  const checksum = doubleSha3(payload).slice(0, 4);
+  const combined = new Uint8Array(payload.length + 4);
+  combined.set(payload, 0);
+  combined.set(checksum, payload.length);
+  return base58Encode(combined);
+}
+
+function publicKeyToAddress(pubKeyBytes) {
+  // pubKeyBytes is the 33-byte compressed pubkey
+  const h = hash160(pubKeyBytes);
+  const versioned = new Uint8Array(1 + h.length);
+  versioned[0] = ADDRESS_VER;
+  versioned.set(h, 1);
+  return base58checkEncode(versioned);
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Transaction building & signing
+// ────────────────────────────────────────────────────────────────────────────
+
+function canonicalJson(obj) {
+  // Mirror Python's json.dumps(obj, sort_keys=True) byte output.
+  // Python uses ', ' and ': ' as separators by default; we match.
+  if (obj === null) return 'null';
+  if (typeof obj === 'boolean') return obj ? 'true' : 'false';
+  if (typeof obj === 'number') {
+    // Python integers stringify without a decimal; floats keep theirs.
+    // We follow JSON.stringify behavior which handles both naturally.
+    return JSON.stringify(obj);
+  }
+  if (typeof obj === 'string') return JSON.stringify(obj);
+  if (Array.isArray(obj)) return '[' + obj.map(canonicalJson).join(', ') + ']';
+  if (typeof obj === 'object') {
+    const keys = Object.keys(obj).sort();
+    return '{' + keys.map(k => JSON.stringify(k) + ': ' + canonicalJson(obj[k])).join(', ') + '}';
+  }
+  throw new Error('unsupported type in canonicalJson');
+}
+
+function signingPayload(tx) {
+  // Mirror Transaction._signing_payload() exactly
+  const payload = {
+    type: tx.tx_type,
+    inputs: tx.inputs.map(i => ({
+      utxo_tx_hash: i.utxo_tx_hash,
+      utxo_index: i.utxo_index,
+    })),
+    outputs: tx.outputs.map(o => ({ address: o.address, amount: o.amount })),
+    fee: tx.fee,
+    nonce: tx.nonce,
+  };
+  return utf8(canonicalJson(payload));
+}
+
+async function buildAndSignTransaction({
+  privateKeyHex, toAddress, amount, fee, memo, utxos, fromAddress, changeAddress,
+}) {
+  // Greedy largest-first coin selection
+  const sorted = [...utxos].sort((a, b) => b.amount - a.amount);
+  const needed = amount + fee;
+  const selected = [];
+  let total = 0;
+  for (const u of sorted) {
+    selected.push(u);
+    total += u.amount;
+    if (total >= needed) break;
+  }
+  if (total < needed) {
+    throw new Error(`Insufficient funds: have ${total.toFixed(8)}, need ${needed.toFixed(8)}`);
+  }
+  const change = +(total - needed).toFixed(8);
+
+  const outputs = [{ address: toAddress, amount }];
+  if (change > 1e-8) outputs.push({ address: changeAddress, amount: change });
+
+  const inputs = selected.map(u => ({
+    utxo_tx_hash: u.tx_hash,
+    utxo_index: u.index,
+    signature: '',
+    public_key: '',
+  }));
+
+  const tx = {
+    tx_type: 'regular',
+    inputs, outputs, fee, memo: memo || '', nonce: 0, zk_proof: '',
+    timestamp: Math.floor(Date.now() / 1000),
+  };
+
+  // Sign every input with the same private key (single-address wallet for now)
+  const privKeyBytes = fromHex(privateKeyHex);
+  const pubKeyBytes  = secp256k1.getPublicKey(privKeyBytes, true);  // compressed
+  const payload      = signingPayload(tx);
+  const payloadHash  = sha3_256(payload);
+  // ECDSA over the SHA3-256 of the payload. noble-curves sign() is sync and
+  // returns a Signature object. Python's `cryptography` library verifies
+  // DER-encoded signatures, so we emit DER. lowS:true matches the Python
+  // library's canonical-form default and avoids malleability rejections.
+  const sig = secp256k1.sign(payloadHash, privKeyBytes, { lowS: true });
+  const sigDer = sig.toDERRawBytes();
+
+  for (const inp of inputs) {
+    inp.signature = hex(sigDer);
+    inp.public_key = hex(pubKeyBytes);
+  }
+
+  // Compute tx hash to match Python's: sha3_256(body_bytes)
+  // body_bytes uses to_dict() but EXCLUDES the 'hash' field
+  const bodyDict = {
+    tx_type: tx.tx_type,
+    inputs: tx.inputs.map(i => ({
+      utxo_tx_hash: i.utxo_tx_hash,
+      utxo_index: i.utxo_index,
+      signature: i.signature,
+      public_key: i.public_key,
+    })),
+    outputs: tx.outputs,
+    fee: tx.fee,
+    timestamp: tx.timestamp,
+    nonce: tx.nonce,
+    zk_proof: tx.zk_proof,
+    memo: tx.memo,
+  };
+  const bodyBytes = utf8(canonicalJson(bodyDict));
+  const txHash = hex(sha3_256(sha3_256(bodyBytes)));  // double_sha3 like compute_hash
+
+  tx.hash = txHash;
+  return tx;
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Encrypted local storage
+// ────────────────────────────────────────────────────────────────────────────
+// Private key is stored AES-GCM encrypted with a key derived from the user's
+// password via PBKDF2. Salt and IV stored alongside the ciphertext.
+
+const STORAGE_KEY = 'obelyth_wallet_v1';
+
+async function deriveKey(password, salt) {
+  const baseKey = await crypto.subtle.importKey(
+    'raw', utf8(password), 'PBKDF2', false, ['deriveKey'],
+  );
+  return crypto.subtle.deriveKey(
+    { name: 'PBKDF2', salt, iterations: 200_000, hash: 'SHA-256' },
+    baseKey,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    ['encrypt', 'decrypt'],
+  );
+}
+
+async function encryptKey(privKeyHex, password) {
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const iv   = crypto.getRandomValues(new Uint8Array(12));
+  const key  = await deriveKey(password, salt);
+  const cipher = await crypto.subtle.encrypt(
+    { name: 'AES-GCM', iv }, key, utf8(privKeyHex),
+  );
+  return {
+    v: 1,
+    salt: hex(salt),
+    iv:   hex(iv),
+    ct:   hex(new Uint8Array(cipher)),
+  };
+}
+
+async function decryptKey(stored, password) {
+  const salt = fromHex(stored.salt);
+  const iv   = fromHex(stored.iv);
+  const ct   = fromHex(stored.ct);
+  const key  = await deriveKey(password, salt);
+  const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, ct);
+  return new TextDecoder().decode(plain);
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Wallet state + UI
+// ────────────────────────────────────────────────────────────────────────────
+
+const $ = id => document.getElementById(id);
+const state = {
+  privKeyHex : null,
+  pubKeyHex  : null,
+  address    : null,
+  nodeUrl    : localStorage.getItem('obelyth_node_url') || 'http://127.0.0.1:8334',
+};
+
+function showScreen(name) {
+  $('screen-init').classList.add('hidden');
+  $('screen-locked').classList.add('hidden');
+  $('screen-main').classList.add('hidden');
+  $('screen-send').classList.add('hidden');
+  if (name === 'init')   $('screen-init').classList.remove('hidden');
+  if (name === 'locked') $('screen-locked').classList.remove('hidden');
+  if (name === 'main') {
+    $('screen-main').classList.remove('hidden');
+    $('screen-send').classList.remove('hidden');
+  }
+}
+
+function msg(elId, ok, text, detail) {
+  const el = $(elId);
+  el.className = 'msg show ' + (ok ? 'ok' : 'err');
+  el.innerHTML = text + (detail ? '<code>' + detail + '</code>' : '');
+}
+
+const ui = {
+  showImport() {
+    $('import-section').classList.remove('hidden');
+    $('create-section').classList.add('hidden');
+  },
+  hideImport() { $('import-section').classList.add('hidden'); },
+  showCreate() {
+    $('create-section').classList.remove('hidden');
+    $('import-section').classList.add('hidden');
+  },
+  hideCreate() { $('create-section').classList.add('hidden'); },
+
+  createNew() {
+    if ($('create-section').classList.contains('hidden')) {
+      this.showCreate();
+    } else {
+      this.hideCreate();
+    }
+  },
+
+  async doCreate() {
+    const pw1 = $('create-pw').value;
+    const pw2 = $('create-pw2').value;
+    if (!pw1 || pw1.length < 8) {
+      msg('init-msg', false, 'Password must be at least 8 characters.');
+      return;
+    }
+    if (pw1 !== pw2) {
+      msg('init-msg', false, 'Passwords do not match.');
+      return;
+    }
+    const privKey = secp256k1.utils.randomPrivateKey();
+    const privHex = hex(privKey);
+    await this._persistAndUnlock(privHex, pw1);
+  },
+
+  async doImport() {
+    const k = $('import-key').value.trim();
+    const pw = $('import-pw').value;
+    if (k.length !== 64 || !/^[0-9a-fA-F]+$/.test(k)) {
+      msg('init-msg', false, 'Private key must be 64 hex characters.');
+      return;
+    }
+    if (!pw || pw.length < 8) {
+      msg('init-msg', false, 'Password must be at least 8 characters.');
+      return;
+    }
+    try {
+      // Verify it produces a valid pubkey
+      secp256k1.getPublicKey(fromHex(k), true);
+    } catch (e) {
+      msg('init-msg', false, 'Invalid private key: ' + e.message);
+      return;
+    }
+    await this._persistAndUnlock(k, pw);
+  },
+
+  async _persistAndUnlock(privHex, password) {
+    try {
+      const encrypted = await encryptKey(privHex, password);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(encrypted));
+      this._loadFromKey(privHex);
+      showScreen('main');
+      this._renderAddress();
+      this.refreshBalance();
+    } catch (e) {
+      msg('init-msg', false, 'Wallet creation failed: ' + e.message);
+    }
+  },
+
+  _loadFromKey(privHex) {
+    const pubBytes = secp256k1.getPublicKey(fromHex(privHex), true);
+    state.privKeyHex = privHex;
+    state.pubKeyHex  = hex(pubBytes);
+    state.address    = publicKeyToAddress(pubBytes);
+  },
+
+  async unlock() {
+    const pw = $('unlock-pw').value;
+    const stored = JSON.parse(localStorage.getItem(STORAGE_KEY));
+    try {
+      const privHex = await decryptKey(stored, pw);
+      this._loadFromKey(privHex);
+      $('unlock-pw').value = '';
+      showScreen('main');
+      this._renderAddress();
+      this.refreshBalance();
+    } catch (e) {
+      msg('unlock-msg', false, 'Wrong password.');
+    }
+  },
+
+  lock() {
+    state.privKeyHex = null;
+    state.pubKeyHex  = null;
+    state.address    = null;
+    $('exported-key').classList.add('hidden');
+    showScreen('locked');
+  },
+
+  forgetWallet() {
+    if (!confirm('This will delete the wallet from this browser. Make sure you have your private key backed up. Continue?')) return;
+    localStorage.removeItem(STORAGE_KEY);
+    state.privKeyHex = null;
+    state.pubKeyHex  = null;
+    state.address    = null;
+    showScreen('init');
+  },
+
+  _renderAddress() {
+    $('addr-display').textContent = state.address || '—';
+  },
+
+  async refreshBalance() {
+    if (!state.address) return;
+    try {
+      const r = await fetch(`${state.nodeUrl}/balance?addr=${state.address}`);
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const data = await r.json();
+      $('balance-num').textContent = (data.balance ?? 0).toLocaleString(
+        undefined, { maximumFractionDigits: 8 }
+      );
+    } catch (e) {
+      $('balance-num').textContent = '—';
+      msg('send-msg', false, 'Could not reach node at ' + state.nodeUrl + '. ' + e.message);
+    }
+  },
+
+  exportKey() {
+    if (!state.privKeyHex) return;
+    if (!confirm('Reveal your private key? Anyone who sees it can spend your OBY.')) return;
+    $('exported-key').textContent = state.privKeyHex;
+    $('exported-key').classList.remove('hidden');
+  },
+
+  async send() {
+    const to = $('send-to').value.trim();
+    const amount = parseFloat($('send-amount').value);
+    const memo = $('send-memo').value.trim();
+    if (!to) { msg('send-msg', false, 'Enter a recipient address.'); return; }
+    if (!amount || amount <= 0) { msg('send-msg', false, 'Enter an amount > 0.'); return; }
+    if (!state.privKeyHex) { msg('send-msg', false, 'Wallet is locked.'); return; }
+
+    $('send-btn').disabled = true;
+    $('send-btn').textContent = 'Sending…';
+    try {
+      // Fetch UTXOs
+      const r = await fetch(`${state.nodeUrl}/utxos?addr=${state.address}`);
+      if (!r.ok) throw new Error(`UTXO fetch HTTP ${r.status}`);
+      const u = await r.json();
+      if (!u.utxos || u.utxos.length === 0) {
+        throw new Error('No UTXOs to spend — balance is zero.');
+      }
+
+      const tx = await buildAndSignTransaction({
+        privateKeyHex: state.privKeyHex,
+        toAddress: to,
+        amount,
+        fee: 0.001,
+        memo,
+        utxos: u.utxos,
+        fromAddress: state.address,
+        changeAddress: state.address,   // single-address wallet, change comes back to self
+      });
+
+      // Submit
+      const resp = await fetch(`${state.nodeUrl}/sendtx`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tx }),
+      });
+      const result = await resp.json();
+      if (result.error) throw new Error(result.error);
+      if (!result.accepted) throw new Error('Node rejected the transaction.');
+
+      msg('send-msg', true,
+          `Sent ${amount} OBY. The chain will confirm in ~30 seconds.`,
+          'tx hash: ' + result.hash);
+      $('send-to').value = '';
+      $('send-amount').value = '';
+      $('send-memo').value = '';
+      setTimeout(() => this.refreshBalance(), 2000);
+    } catch (e) {
+      msg('send-msg', false, 'Send failed: ' + e.message);
+    } finally {
+      $('send-btn').disabled = false;
+      $('send-btn').textContent = 'Send transaction';
+    }
+  },
+
+  changeNode() {
+    const u = prompt('Node RPC URL:', state.nodeUrl);
+    if (u && u.trim()) {
+      state.nodeUrl = u.trim().replace(/\/$/, '');
+      localStorage.setItem('obelyth_node_url', state.nodeUrl);
+      $('node-url-display').textContent = state.nodeUrl;
+      if (state.address) this.refreshBalance();
+    }
+  },
+};
+window.ui = ui;
+
+// ── Boot ──────────────────────────────────────────────────────────────────
+$('node-url-display').textContent = state.nodeUrl;
+
+if (localStorage.getItem(STORAGE_KEY)) {
+  showScreen('locked');
+} else {
+  showScreen('init');
+}
+</script>
+</body>
+</html>

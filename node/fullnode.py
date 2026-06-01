@@ -61,6 +61,10 @@ class RPCHandler(BaseHTTPRequestHandler):
             '/mempool'                   : self._mempool,
             '/vesting'                   : self._vesting,
             '/balance'                   : self._balance,
+            '/utxos'                     : self._utxos_for,
+            '/blocks'                    : self._blocks_list,
+            '/tx'                        : self._tx_lookup,
+            '/address'                   : self._address_history,
             '/compute/nextjob'           : lambda: self._compute_nextjob(query),
             '/compute/pending_challenges': lambda: self._compute_pending_challenges(query),
             '/faucet/status'             : self._faucet_status,
@@ -75,6 +79,18 @@ class RPCHandler(BaseHTTPRequestHandler):
                 self._json(200, data)
         else:
             self._json(404, {'error': 'Not found'})
+
+    def do_OPTIONS(self):
+        # CORS preflight. Browsers send this before a cross-origin POST with a
+        # JSON content-type. Without a proper response here, the browser blocks
+        # the actual POST and the fetch() fails with "Failed to fetch".
+        self.send_response(204)
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+        self.send_header('Access-Control-Allow-Headers', 'Content-Type')
+        self.send_header('Access-Control-Max-Age', '86400')
+        self.send_header('Content-Length', '0')
+        self.end_headers()
 
     def do_POST(self):
         length = int(self.headers.get('Content-Length', 0))
@@ -119,6 +135,8 @@ class RPCHandler(BaseHTTPRequestHandler):
         self.send_header('Content-Type', 'application/json')
         self.send_header('Content-Length', len(body))
         self.send_header('Access-Control-Allow-Origin', '*')
+        self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+        self.send_header('Access-Control-Allow-Headers', 'Content-Type')
         self.end_headers()
         self.wfile.write(body)
 
@@ -150,6 +168,166 @@ class RPCHandler(BaseHTTPRequestHandler):
         if not addr:
             return {'error': 'Provide ?addr=<address>'}
         return {'address': addr, 'balance': self.node.chain.utxos.balance(addr)}
+
+    def _utxos_for(self):
+        """GET /utxos?addr=... — returns unspent UTXOs for a wallet to spend.
+        The web wallet needs this to build transactions client-side."""
+        addr = self.path.split('?addr=')[-1] if '?addr=' in self.path else ''
+        if not addr:
+            return {'error': 'Provide ?addr=<address>'}
+        utxos = self.node.chain.utxos.unspent_for(addr)
+        return {
+            'address': addr,
+            'count'  : len(utxos),
+            'utxos'  : [u.to_dict() for u in utxos],
+            'total'  : round(sum(u.amount for u in utxos), 8),
+        }
+
+    def _blocks_list(self):
+        """GET /blocks?limit=N&before=H — paginated block list, newest first.
+
+        `limit` (default 20, max 100) sets page size.
+        `before` (optional) is a block hash; results start from blocks
+        immediately before that one in height order. Used by the explorer
+        to page back through history.
+
+        Returns a lean per-block summary — full block details available via
+        POST /getblock or GET /blocks?hash=H.
+        """
+        import urllib.parse
+        q = urllib.parse.parse_qs(self.path.split('?', 1)[1]) if '?' in self.path else {}
+        limit  = max(1, min(int(q.get('limit', ['20'])[0]), 100))
+        before = q.get('before', [None])[0]
+
+        all_blocks = self.node.chain.dag.all_blocks()
+        # Sort newest first by height, tiebreak on hash for determinism
+        all_blocks.sort(key=lambda b: (-b.header.height, b.hash))
+
+        if before:
+            # Drop everything up to and including 'before'
+            idx = next((i for i, b in enumerate(all_blocks) if b.hash == before), None)
+            if idx is None:
+                return {'error': f'block {before} not found'}
+            all_blocks = all_blocks[idx + 1:]
+
+        page = all_blocks[:limit]
+        return {
+            'count'        : len(page),
+            'total_blocks' : len(self.node.chain.dag),
+            'chain_height' : self.node.chain.dag.height(),
+            'blocks'       : [{
+                'hash'         : b.hash,
+                'height'       : b.header.height,
+                'parent_hashes': b.header.parent_hashes,
+                'timestamp'    : b.header.timestamp,
+                'miner'        : b.header.miner_address,
+                'consensus'    : b.header.consensus_type.value
+                                  if hasattr(b.header.consensus_type, 'value')
+                                  else b.header.consensus_type,
+                'tx_count'     : len(b.transactions),
+                'difficulty'   : b.header.difficulty,
+            } for b in page],
+            'next_before'  : page[-1].hash if len(page) == limit else None,
+        }
+
+    def _tx_lookup(self):
+        """GET /tx?hash=H — find a transaction anywhere in the chain or mempool.
+
+        Returns the tx body plus where we found it (which block, or 'mempool'),
+        so the explorer can link from a tx to its containing block.
+        """
+        import urllib.parse
+        q = urllib.parse.parse_qs(self.path.split('?', 1)[1]) if '?' in self.path else {}
+        h = q.get('hash', [''])[0]
+        if not h:
+            return {'error': 'Provide ?hash=<tx_hash>'}
+
+        # Search mempool first (cheap)
+        for tx in self.node.chain.mempool:
+            if tx.hash == h:
+                return {'found': True, 'location': 'mempool', 'tx': tx.to_dict()}
+
+        # Then search blocks. We walk newest-first because recent txs are the
+        # most common lookup. For a large chain this should be replaced with
+        # a tx_hash -> block_hash index; not worth building until size demands.
+        blocks = self.node.chain.dag.all_blocks()
+        blocks.sort(key=lambda b: -b.header.height)
+        for block in blocks:
+            for tx in block.transactions:
+                if tx.hash == h:
+                    return {
+                        'found'      : True,
+                        'location'   : 'block',
+                        'block_hash' : block.hash,
+                        'block_height': block.header.height,
+                        'tx'         : tx.to_dict(),
+                    }
+        return {'found': False, 'error': 'tx not found'}
+
+    def _address_history(self):
+        """GET /address?addr=H&limit=N — balance plus tx history for an address.
+
+        Returns balance, current UTXO count, and the list of transactions
+        (in any block) where this address appears as an input source or
+        output destination. Sorted newest-first.
+
+        Like /tx, this walks every block. Acceptable on a small testnet;
+        replace with an address-index for a real production chain.
+        """
+        import urllib.parse
+        q = urllib.parse.parse_qs(self.path.split('?', 1)[1]) if '?' in self.path else {}
+        addr  = q.get('addr', [''])[0]
+        limit = max(1, min(int(q.get('limit', ['50'])[0]), 200))
+        if not addr:
+            return {'error': 'Provide ?addr=<address>'}
+
+        # Walk blocks newest first, collect matching txs
+        blocks = self.node.chain.dag.all_blocks()
+        blocks.sort(key=lambda b: -b.header.height)
+
+        history = []
+        # Build a UTXO lookup so we can resolve input addresses (which the
+        # tx itself doesn't carry — inputs reference a tx_hash:index)
+        utxo_index = {f"{tx.hash}:{i}": out
+                      for block in blocks
+                      for tx in block.transactions
+                      for i, out in enumerate(tx.outputs)}
+
+        for block in blocks:
+            for tx in block.transactions:
+                # Is this address an output destination?
+                received = sum(o.amount for o in tx.outputs if o.address == addr)
+                # Or an input source? (look up referenced UTXO)
+                sent = sum(
+                    utxo_index.get(f"{i.utxo_tx_hash}:{i.utxo_index}").amount
+                    for i in tx.inputs
+                    if utxo_index.get(f"{i.utxo_tx_hash}:{i.utxo_index}")
+                    and utxo_index[f"{i.utxo_tx_hash}:{i.utxo_index}"].address == addr
+                )
+                if received > 0 or sent > 0:
+                    history.append({
+                        'tx_hash'     : tx.hash,
+                        'tx_type'     : tx.tx_type.value if hasattr(tx.tx_type, 'value') else tx.tx_type,
+                        'block_hash'  : block.hash,
+                        'block_height': block.header.height,
+                        'timestamp'   : block.header.timestamp,
+                        'received'    : round(received, 8),
+                        'sent'        : round(sent, 8),
+                        'net'         : round(received - sent, 8),
+                        'fee'         : tx.fee if sent > 0 else 0.0,
+                    })
+                if len(history) >= limit:
+                    break
+            if len(history) >= limit:
+                break
+
+        return {
+            'address'    : addr,
+            'balance'    : self.node.chain.utxos.balance(addr),
+            'utxo_count' : len(self.node.chain.utxos.unspent_for(addr)),
+            'tx_count'   : len(history),
+            'history'    : history,
+        }
 
     def _send_tx(self, req):
         tx_dict = req.get('tx')
@@ -316,7 +494,21 @@ class FullNode:
             log.warning(f"No founder key — using node wallet as founder: {founder_addr}")
 
         # ── Blockchain ──
+        # Create with genesis, then overlay a saved snapshot if one exists.
+        # On a fresh node the genesis allocation stands; on a restart the
+        # snapshot replaces it with the persisted chain (blocks, UTXOs,
+        # validators, mempool). This is what lets the silent testnet survive
+        # VPS reboots without losing balances or mined history.
         self.chain = Blockchain(founder_address=founder_addr, genesis=True)
+        self.chain_state_path = self.data_dir / 'chain_state.json'
+        if self.chain_state_path.exists():
+            try:
+                if self.chain.load(str(self.chain_state_path)):
+                    log.info(f"Restored chain from {self.chain_state_path} "
+                             f"(height={self.chain.dag.height()})")
+            except Exception as e:
+                log.error(f"Failed to load chain snapshot ({e}); "
+                          f"continuing from genesis")
 
         # ── Tokenomics + Compute API ──
         # The engine takes providers so verification can use real chain state
@@ -472,11 +664,39 @@ class FullNode:
             f"Consensus sweep started (interval={self.CONSENSUS_SWEEP_INTERVAL_S}s)"
         )
 
+        # Chain persistence loop — periodically snapshot chain + tokenomics
+        # state so a restart (VPS reboot, crash, update) resumes where it left
+        # off instead of resetting to genesis. Also saves on clean shutdown.
+        threading.Thread(target=self._persist_loop, daemon=True,
+                         name='persist').start()
+        log.info(
+            f"Chain persistence started (interval={self.PERSIST_INTERVAL_S}s "
+            f"→ {self.chain_state_path})"
+        )
+
         log.info("=== Obelyth node running ===")
         self._print_status()
 
     REFUND_SWEEP_INTERVAL_S    = 60.0   # how often to sweep faulted-job refunds
     CONSENSUS_SWEEP_INTERVAL_S = 30.0   # how often to finalize timed-out redundant jobs
+    PERSIST_INTERVAL_S         = 30.0   # how often to snapshot chain + tokenomics state
+
+    def _persist_loop(self):
+        time.sleep(self.PERSIST_INTERVAL_S)
+        while True:
+            try:
+                self.save_state()
+            except Exception as e:
+                log.error(f"Persist loop error: {e}")
+            time.sleep(self.PERSIST_INTERVAL_S)
+
+    def save_state(self):
+        """Snapshot chain + tokenomics to disk. Safe to call anytime."""
+        self.chain.save(str(self.chain_state_path))
+        try:
+            self.tokenomics.save(str(self.tokenomics_state_path))
+        except Exception as e:
+            log.error(f"Tokenomics save failed: {e}")
 
     def _refund_sweep_loop(self):
         # Let the rest of the node settle before the first sweep
@@ -565,11 +785,12 @@ class FullNode:
                     f"Burned={s['total_burned']:.4f} OBY"
                 )
         except KeyboardInterrupt:
-            log.info("Shutting down...")
+            log.info("Shutting down — saving chain + tokenomics state...")
             try:
-                self.tokenomics.save(str(self.tokenomics_state_path))
+                self.save_state()
+                log.info(f"State saved to {self.data_dir}")
             except Exception as e:
-                log.warning(f"Could not save tokenomics state: {e}")
+                log.warning(f"Could not save state on shutdown: {e}")
             self.network.stop()
 
 

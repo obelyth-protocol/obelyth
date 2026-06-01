@@ -16,7 +16,7 @@ venv/
 env/
 
 # Node data (never commit chain state or keys)
-nexus_data/
+obelyth_data/
 *.db
 *.wif
 founder_key.wif
@@ -43,3 +43,6 @@ htmlcov/
 
 # Logs
 *.log
+
+# Private business documents (not for public repo)
+obelyth-grant-application.docx
