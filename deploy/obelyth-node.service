@@ -1,0 +1,34 @@
+[Unit]
+Description=Obelyth Full Node (testnet)
+Documentation=https://obelyth.io
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=obelyth
+Group=obelyth
+WorkingDirectory=/opt/obelyth
+Environment="PYTHONPATH=/opt/obelyth"
+Environment="PYTHONUNBUFFERED=1"
+ExecStart=/opt/obelyth/.venv/bin/python -m node.fullnode --port 8333 --rpc-port 8334 --data-dir /var/lib/obelyth --mine
+Restart=on-failure
+RestartSec=10s
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=obelyth-node
+
+# Hardening — see systemd.exec(5)
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/obelyth
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target
