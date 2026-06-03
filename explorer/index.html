@@ -342,8 +342,22 @@
 // ────────────────────────────────────────────────────────────────────────────
 // Config & state
 // ────────────────────────────────────────────────────────────────────────────
+
+// Default node URL resolution:
+//   - localStorage override always wins
+//   - Otherwise, hosted over http(s) → use current origin
+//   - Otherwise file:// → localhost for dev
+const _defaultNodeUrl = (() => {
+  const stored = localStorage.getItem('obelyth_node_url');
+  if (stored) return stored;
+  if (window.location.protocol === 'http:' || window.location.protocol === 'https:') {
+    return window.location.origin;
+  }
+  return 'http://127.0.0.1:8334';
+})();
+
 const state = {
-  nodeUrl: localStorage.getItem('obelyth_node_url') || 'http://127.0.0.1:8334',
+  nodeUrl: _defaultNodeUrl,
   beforeStack: [],   // for pagination — stack of "before" hashes we've passed
 };
 

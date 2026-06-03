@@ -592,11 +592,26 @@ async function decryptKey(stored, password) {
 // ────────────────────────────────────────────────────────────────────────────
 
 const $ = id => document.getElementById(id);
+
+// Default node URL resolution:
+//   - localStorage override always wins (user picked something explicit)
+//   - Otherwise, if served over http(s), use the current origin —
+//     this is what makes https://testnet.obelyth.io/wallet/ work without config
+//   - Otherwise (file://), fall back to localhost for local dev
+const _defaultNodeUrl = (() => {
+  const stored = localStorage.getItem('obelyth_node_url');
+  if (stored) return stored;
+  if (window.location.protocol === 'http:' || window.location.protocol === 'https:') {
+    return window.location.origin;
+  }
+  return 'http://127.0.0.1:8334';
+})();
+
 const state = {
   privKeyHex : null,
   pubKeyHex  : null,
   address    : null,
-  nodeUrl    : localStorage.getItem('obelyth_node_url') || 'http://127.0.0.1:8334',
+  nodeUrl    : _defaultNodeUrl,
 };
 
 function showScreen(name) {
