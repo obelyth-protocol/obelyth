@@ -16,8 +16,13 @@ gpu_count = 0
 # Minimum VRAM per GPU in GB
 min_vram_gb = 8
 
-# CUDA device IDs to use (empty = all)
+# GPU device IDs to use (empty = all). Maps to CUDA device IDs on NVIDIA,
+# ROCm device IDs on AMD, MPS device on Apple Silicon.
 # device_ids = [0, 1]
+
+# Backend hint (auto-detected by default — only set this to override).
+# Valid values: "auto", "cuda", "rocm", "mps", "cpu"
+# backend = "auto"
 
 [vllm]
 # vLLM server config (starts automatically if not running)

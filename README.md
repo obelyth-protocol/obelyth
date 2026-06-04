@@ -168,12 +168,12 @@ The 3% pre-mainnet community pool (630,000 OBY) rewards everyone who builds and 
 
 | Role | What you do | How to join |
 |---|---|---|
-| **Validator** | Run a validator node, sign blocks | Coming Soon |
-| **GPU Miner** | Run AI compute jobs on your GPU | Coming Soon |
-| **AI Developer** | Use the SDK, test models, give feedback | Coming Soon |
+| **Validator** | Run a validator node, sign blocks | [obelyth.io/validate](https://obelyth.io/validate) |
+| **GPU Miner** | Run AI compute jobs on your GPU | [obelyth.io/mine](https://obelyth.io/mine) |
+| **AI Developer** | Use the SDK, test models, give feedback | [obelyth.io/dev](https://obelyth.io/dev) |
 | **Code Contributor** | Improve the node, SDK, or tooling | Open a PR on this repo |
-| **Documentation** | Write tutorials, guides, translations | Coming Soon |
-| **Data Scientist** | Build economic models and dashboards | Coming Soon |
+| **Documentation** | Write tutorials, guides, translations | [docs.obelyth.io/contribute](https://docs.obelyth.io/contribute) |
+| **Data Scientist** | Build economic models and dashboards | [obelyth.io/community](https://obelyth.io/community) |
 | **Security Researcher** | Find and disclose vulnerabilities | [security@obelyth.io](mailto:security@obelyth.io) |
 | **Community** | Grow and support the community | [discord.gg/xppWjgYnT](https://discord.gg/xppWjgYnT) |
 
@@ -200,16 +200,27 @@ Register at [obelyth.io/validate](https://obelyth.io/validate) to appear on the 
 
 ## Running a GPU Miner
 
-**Requirements:** NVIDIA GPU 8GB+ VRAM, CUDA 12.x, Python 3.10+, [vLLM](https://github.com/vllm-project/vllm).
+**Requirements:** Any GPU capable of running vLLM, plus Python 3.10+ and [vLLM](https://github.com/vllm-project/vllm). Supported paths:
+
+- **NVIDIA** — 8 GB+ VRAM, CUDA 12.x. Install vLLM with `pip install vllm`.
+- **AMD (data center)** — MI300X / MI325X / MI350X / MI355X with ROCm 6.2+. Install vLLM with `pip install vllm --extra-index-url https://download.pytorch.org/whl/rocm6.2`, or use the prebuilt `vllm/vllm-openai-rocm` Docker image.
+- **AMD (consumer)** — RX 7900 XTX (24 GB) for models up to ~30B parameters; RX 7800 XT / 7700 XT (12-16 GB) for 7-13B models. Same ROCm install path as above.
+- **Apple Silicon** — M2/M3/M4 with 24 GB+ unified memory. Use the `mlx` backend; vLLM compatibility via the experimental `vllm-mlx` adapter.
+- **CPU-only** — Supported for testing and small models. Not competitive for production jobs.
+
+**Determinism note:** at mainnet, miners outside a published "tier-1 certified" list of (GPU SKU + driver version + container digest) may be limited to standard-tier jobs to protect redundant-tier consensus from non-determinism across hardware. Testnet is permissive: all hardware welcome, full reruns enforce correctness.
 
 ```bash
 git clone https://github.com/obelyth-protocol/obelyth
 cd obelyth
 pip install -r requirements.txt
-pip install vllm
+
+# Install vLLM for your hardware
+pip install vllm                                                                # NVIDIA
+# pip install vllm --extra-index-url https://download.pytorch.org/whl/rocm6.2   # AMD ROCm
 
 cp config/miner.example.toml config/miner.toml
-# Edit miner.toml — add your OBY address and GPU settings
+# Edit miner.toml — add your OBY address and hardware settings
 
 python -m compute.miner --config config/miner.toml
 ```
@@ -313,7 +324,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md). Every merged PR earns points in the pre-
 
 ## Grants
 
-Actively applying for ecosystem grants to fund legal structure, security review, and core engineering. If you represent a foundation interested in decentralized AI compute infrastructure: [hello@obelyth.io](mailto:hello@obelyth.io)
+Actively applying for ecosystem grants to fund legal structure, security review, and core engineering. If you represent a foundation interested in decentralized AI compute infrastructure: [grants@obelyth.io](mailto:grants@obelyth.io)
 
 Current targets: Filecoin/Protocol Labs ProPGF · Arbitrum Foundation · Base Builder · Uniswap Foundation · Ethereum Foundation ESP
 
@@ -330,9 +341,9 @@ MIT — see [LICENSE](LICENSE).
 | | |
 |---|---|
 | Website | [obelyth.io](https://obelyth.io) |
-| Docs | Coming Soon |
-| Explorer | Coming Soon |
-| Whitepaper | [obelyth.io](https://obelyth.io) |
+| Docs | [docs.obelyth.io](https://docs.obelyth.io) |
+| Explorer | [explorer.obelyth.io](https://explorer.obelyth.io) |
+| Whitepaper | [obelyth.io/whitepaper](https://obelyth.io/whitepaper) |
 | Discord | [discord.gg/xppWjgYnT](https://discord.gg/xppWjgYnT) |
 | Twitter/X | [@Obelyth_Chain](https://x.com/Obelyth_Chain) |
 | Security | [security@obelyth.io](mailto:security@obelyth.io) |
