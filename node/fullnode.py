@@ -30,11 +30,10 @@ from tokenomics.engine  import TokenomicsEngine
 from compute.api        import ComputeAPI
 from node.observability import MetricsRegistry, evaluate_health
 
-logging.basicConfig(
-    level   = logging.INFO,
-    format  = '%(asctime)s [%(name)s] %(levelname)s %(message)s',
-    datefmt = '%H:%M:%S',
-)
+# Install structured JSON logging BEFORE any other module-level logger fires.
+# Set OBELYTH_LOG=text in env to keep human-readable logs for local dev.
+from core.logging import install as _install_logging, log_event
+_install_logging()
 log = logging.getLogger('obelyth.node')
 
 DEFAULT_SEED_NODES = [
@@ -95,6 +94,18 @@ class RPCHandler(BaseHTTPRequestHandler):
         self.send_header('Content-Length', '0')
         self.end_headers()
 
+    def do_HEAD(self):
+        # HEAD = GET with no body. Used by monitoring tools (curl -I, uptime
+        # checkers) to test endpoint health without paying the response cost.
+        # We delegate to do_GET and suppress the body via a flag the _json
+        # helper checks. Without this handler, BaseHTTPRequestHandler returns
+        # 501 Not Implemented, which trips false-positive alerts on /health.
+        self._head_only = True
+        try:
+            self.do_GET()
+        finally:
+            self._head_only = False
+
     def do_POST(self):
         length = int(self.headers.get('Content-Length', 0))
         body   = self.rfile.read(length)
@@ -138,10 +149,14 @@ class RPCHandler(BaseHTTPRequestHandler):
         self.send_header('Content-Type', 'application/json')
         self.send_header('Content-Length', len(body))
         self.send_header('Access-Control-Allow-Origin', '*')
-        self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+        self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, HEAD')
         self.send_header('Access-Control-Allow-Headers', 'Content-Type')
         self.end_headers()
-        self.wfile.write(body)
+        # HEAD requests get headers (including Content-Length) but no body,
+        # per RFC 7231 §4.3.2. do_HEAD sets _head_only before calling do_GET.
+        if not getattr(self, '_head_only', False):
+            self.wfile.write(body)
+
 
     # ── Routes ────────────────────────────────────────────────────────────────
 
